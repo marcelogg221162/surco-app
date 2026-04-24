@@ -1,0 +1,965 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0"/>
+  <meta name="theme-color" content="#1e5631"/>
+  <meta name="apple-mobile-web-app-capable" content="yes"/>
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+  <meta name="apple-mobile-web-app-title" content="Surco"/>
+  <title>Surco — Gestión de Cultivos</title>
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{background:#f6f1e9;font-family:Georgia,serif}
+    #root{max-width:480px;margin:0 auto;min-height:100vh}
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/recharts@2.10.0/umd/Recharts.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script type="text/babel">
+    const { useState } = React;
+    const { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, BarChart, Bar, Cell, LineChart, Line } = Recharts;
+
+
+
+// ─── TOKENS ───────────────────────────────────────────────────────────────────
+const C = {
+  bg:"#f6f1e9", panel:"#ffffff", border:"#ddd4c4",
+  earth:"#2c1a0e", earthMid:"#5c3d2e",
+  green:"#1e5631", greenMid:"#2d7a47", greenLight:"#52a870", greenPale:"#eaf5ee",
+  gold:"#a8722a", goldLight:"#d4a843", goldPale:"#fdf4e3",
+  red:"#b83232", redPale:"#fdecea",
+  blue:"#1a6fa8", bluePale:"#e8f4fd",
+  sky:"#3d9fc4", skyPale:"#e0f4fd",
+  ice:"#5b9fd6", icePale:"#eaf4fd",
+  orange:"#c4621a", orangePale:"#fff0e6",
+  purple:"#6d3fa0", purplePale:"#f3eeff",
+  muted:"#9e8d7a", text:"#2c1a0e", white:"#ffffff",
+};
+
+// ─── SHARED ───────────────────────────────────────────────────────────────────
+const Card = ({ children, style={} }) => (
+  <div style={{ background:C.panel, border:`1px solid ${C.border}`, borderRadius:16, padding:18, ...style }}>
+    {children}
+  </div>
+);
+const Badge = ({ children, color, bg }) => (
+  <span style={{ background:bg, color, borderRadius:20, padding:"3px 10px", fontSize:11, fontWeight:700 }}>{children}</span>
+);
+const Btn = ({ children, onClick, variant="primary", full, small, style={} }) => (
+  <button onClick={onClick} style={{
+    width:full?"100%":"auto", padding:small?"8px 14px":"12px 20px",
+    borderRadius:10, fontSize:small?12:14, fontWeight:700, fontFamily:"inherit", cursor:"pointer", border:"none",
+    background:variant==="primary"?C.green:variant==="gold"?C.gold:variant==="red"?C.red:variant==="ghost"?"transparent":C.panel,
+    color:variant==="primary"||variant==="gold"||variant==="red"?C.white:variant==="ghost"?C.muted:C.green,
+    ...(variant==="outline"?{border:`1.5px solid ${C.green}`,background:"transparent",color:C.green}:{}),
+    ...(variant==="ghost"?{border:`1px solid ${C.border}`}:{}),
+    ...style,
+  }}>{children}</button>
+);
+const Divider = () => <div style={{ height:1, background:C.border, margin:"14px 0" }} />;
+const SLabel = ({ children }) => (
+  <div style={{ fontSize:11, color:C.muted, textTransform:"uppercase", letterSpacing:1.5, marginBottom:10 }}>{children}</div>
+);
+
+// ─── DATA ─────────────────────────────────────────────────────────────────────
+const CAMPOS = [
+  { id:1, nombre:"Campo Las Ciruelas", region:"Maule", comuna:"Curicó", cultivo:"ciruela",
+    cultivoLabel:"Ciruela de Secado", icon:"🍑", variedad:"D'Agen", ha:4.2,
+    anoPlantacion:2019, etapaActual:2, riego:"Goteo tecnificado",
+    coords:"34°58'S 71°14'O", tareasPendientes:3, ultimaAplicacion:"15 Abr 2026" },
+  { id:2, nombre:"Parcela Los Avellanos", region:"Biobío", comuna:"Los Ángeles", cultivo:"avellana",
+    cultivoLabel:"Avellana", icon:"🌰", variedad:"Tonda di Giffoni", ha:2.8,
+    anoPlantacion:2022, etapaActual:2, riego:"Microaspersión",
+    coords:"37°28'S 72°21'O", tareasPendientes:1, ultimaAplicacion:"12 Abr 2026" },
+];
+
+const APLICACIONES = [
+  { id:1, campoId:1, fecha:"15/04/2026", producto:"Champion 77 WP", fabricante:"Syngenta", tipo:"Fungicida",
+    dosis:"2.5", unidad:"kg/ha", volAgua:"500 L/ha", etapa:"Floración",
+    clima:"18°C · Despejado · 5 km/h", operario:"J. Muñoz", lote:"CH-2026-001", PHI:7,
+    notas:"Aplicación preventiva Monilia." },
+  { id:2, campoId:1, fecha:"08/04/2026", producto:"Nitrofoska Especial", fabricante:"K+S", tipo:"Fertilizante",
+    dosis:"5", unidad:"kg/ha", volAgua:"400 L/ha", etapa:"Brotación",
+    clima:"20°C · Nublado · 8 km/h", operario:"R. Soto", lote:"CH-2026-002", PHI:0,
+    notas:"Refuerzo post-lluvia." },
+  { id:3, campoId:2, fecha:"12/04/2026", producto:"Roundup Max", fabricante:"Bayer", tipo:"Herbicida",
+    dosis:"1.2", unidad:"L/ha", volAgua:"200 L/ha", etapa:"Cuaja",
+    clima:"22°C · Despejado · 10 km/h", operario:"J. Muñoz", lote:"AV-2026-001", PHI:0,
+    notas:"Control malezas entre hileras." },
+];
+
+const FENOLOGIA = {
+  ciruela:[
+    { nombre:"Dormancia",icon:"💤",meses:"Jun–Jul",tareas:["Poda formación","Fungicida cúprico","Análisis suelo"] },
+    { nombre:"Brotación",icon:"🌱",meses:"Ago",    tareas:["Control áfidos","Fertilización N","Monitoreo heladas"] },
+    { nombre:"Floración",icon:"🌸",meses:"Sep",    tareas:["Protección heladas","Favorecer polinización","NO insecticidas"] },
+    { nombre:"Cuaja",    icon:"🟢",meses:"Oct",    tareas:["Control Monilia","Raleo si necesario","Riego establecimiento"] },
+    { nombre:"Crecimiento",icon:"📈",meses:"Nov–Dic",tareas:["Fertilización K+P","Control carpocapsa","Manejo riego"] },
+    { nombre:"Cosecha",  icon:"✂️",meses:"Ene–Feb",tareas:["Monitoreo madurez","Cosecha escalonada","Cadena de frío"] },
+  ],
+  avellana:[
+    { nombre:"Dormancia",icon:"💤",meses:"Jun–Jul",tareas:["Poda limpieza","Cúprico invernal","Análisis suelo"] },
+    { nombre:"Floración",icon:"🌸",meses:"Ago–Sep",tareas:["Polinización cruzada","Colmenas","Monitoreo heladas"] },
+    { nombre:"Cuaja",    icon:"🟢",meses:"Oct",    tareas:["Fertilización base","Control malezas","Riego tecnificado"] },
+    { nombre:"Crecimiento",icon:"📈",meses:"Nov–Ene",tareas:["Manejo hídrico","Control gusano","Fertilización foliar"] },
+    { nombre:"Cosecha",  icon:"🌰",meses:"Feb–Mar",tareas:["Derribe mecánico","Secado natural","Selección calibre"] },
+  ],
+};
+
+const MERCADO_DATA = {
+  ciruela:  {
+    precio:2.10, cambio:-2.1, color:"#8b4513", icon:"🍑",
+    tendencia:[{m:"Oct",p:2.30},{m:"Nov",p:2.25},{m:"Dic",p:2.20},{m:"Ene",p:2.15},{m:"Feb",p:2.10},{m:"Abr",p:2.10}],
+    mercados:[
+      {pais:"Alemania",flag:"🇩🇪",demanda:82,precio:2.20,tend:"→"},
+      {pais:"Francia", flag:"🇫🇷",demanda:70,precio:2.15,tend:"→"},
+      {pais:"M.Oriente",flag:"🌍",demanda:65,precio:2.30,tend:"↑"},
+      {pais:"EE.UU.",  flag:"🇺🇸",demanda:50,precio:2.05,tend:"↓"},
+      {pais:"Brasil",  flag:"🇧🇷",demanda:38,precio:1.90,tend:"↑"},
+    ],
+    insight:"Medio Oriente en alza +18% YoY. Variedad D'Agen domina mercado europeo. Cosecha Feb–Mar en zona central.",
+    volumen:"68.200 ton", topComprador:"Alemania 🇩🇪",
+  },
+  avellana: {
+    precio:5.60, cambio:+8.7, color:"#8b6914", icon:"🌰",
+    tendencia:[{m:"Oct",p:4.80},{m:"Nov",p:5.00},{m:"Dic",p:5.20},{m:"Ene",p:5.40},{m:"Feb",p:5.50},{m:"Abr",p:5.60}],
+    mercados:[
+      {pais:"Italia",   flag:"🇮🇹",demanda:90,precio:5.80,tend:"↑"},
+      {pais:"Alemania", flag:"🇩🇪",demanda:74,precio:5.60,tend:"↑"},
+      {pais:"España",   flag:"🇪🇸",demanda:60,precio:5.40,tend:"↑"},
+      {pais:"Francia",  flag:"🇫🇷",demanda:55,precio:5.70,tend:"→"},
+      {pais:"Turquía",  flag:"🇹🇷",demanda:40,precio:4.90,tend:"↓"},
+    ],
+    insight:"Cosecha turca cayó 30% — precios al alza. Chile tiene ventana estratégica 2025–2027. Orgánico premium +45%.",
+    volumen:"12.800 ton", topComprador:"Italia 🇮🇹",
+  },
+  cereza:   {
+    precio:4.85, cambio:+12.4, color:"#c0392b", icon:"🍒",
+    tendencia:[{m:"Oct",p:3.20},{m:"Nov",p:3.80},{m:"Dic",p:4.50},{m:"Ene",p:4.85},{m:"Feb",p:4.60},{m:"Abr",p:4.20}],
+    mercados:[
+      {pais:"China",   flag:"🇨🇳",demanda:94,precio:5.10,tend:"↑"},
+      {pais:"EE.UU.",  flag:"🇺🇸",demanda:72,precio:4.60,tend:"↑"},
+      {pais:"Europa",  flag:"🇪🇺",demanda:58,precio:4.40,tend:"→"},
+      {pais:"Japón",   flag:"🇯🇵",demanda:45,precio:4.90,tend:"↑"},
+    ],
+    insight:"China absorbe 68% exportaciones chilenas. Variedad Lapins y Regina lideran demanda. Temporada pico Dic–Ene.",
+    volumen:"42.300 ton", topComprador:"China 🇨🇳",
+  },
+  arandano: {
+    precio:3.40, cambio:+5.2, color:"#5b4a8a", icon:"🫐",
+    tendencia:[{m:"Oct",p:2.80},{m:"Nov",p:3.10},{m:"Dic",p:3.30},{m:"Ene",p:3.40},{m:"Feb",p:3.55},{m:"Abr",p:3.40}],
+    mercados:[
+      {pais:"EE.UU.",  flag:"🇺🇸",demanda:88,precio:3.60,tend:"↑"},
+      {pais:"Europa",  flag:"🇪🇺",demanda:76,precio:3.40,tend:"↑"},
+      {pais:"China",   flag:"🇨🇳",demanda:55,precio:3.20,tend:"↑"},
+    ],
+    insight:"Chile es el mayor exportador mundial en contra-estación. Orgánico tiene premium de +40%.",
+    volumen:"130.500 ton", topComprador:"EE.UU. 🇺🇸",
+  },
+};
+
+const ALERTAS_CLIMA = [
+  { tipo:"helada", icon:"🧊", titulo:"Helada — Vie 25 Abr", color:C.ice, nivel:"crítico" },
+  { tipo:"lluvia", icon:"🌧️", titulo:"Lluvia intensa — Sáb–Dom", color:C.sky, nivel:"moderado" },
+  { tipo:"calor",  icon:"🌡️", titulo:"Ola de calor — Mar 29 Abr", color:C.orange, nivel:"moderado" },
+];
+
+const PRONOSTICO = [
+  { dia:"Hoy", icon:"⛅", max:22, min:10, lluvia:0, alerta:null },
+  { dia:"Jue", icon:"🌤️", max:24, min:12, lluvia:0, alerta:null },
+  { dia:"Vie", icon:"🧊", max:16, min:-2, lluvia:0, alerta:"helada" },
+  { dia:"Sáb", icon:"🌧️", max:14, min:8,  lluvia:28, alerta:"lluvia" },
+  { dia:"Dom", icon:"🌦️", max:13, min:7,  lluvia:12, alerta:"lluvia" },
+  { dia:"Lun", icon:"🌤️", max:26, min:14, lluvia:0, alerta:null },
+  { dia:"Mar", icon:"☀️", max:34, min:16, lluvia:0, alerta:"calor" },
+];
+
+// ─── MÓDULO HOME ──────────────────────────────────────────────────────────────
+function ModuloHome({ onNavCampo, onNavClima, onNavCuaderno, onNavPlagas, onNavMercado }) {
+  return (
+    <div>
+      <div style={{ marginBottom:20 }}>
+        <div style={{ fontSize:12, color:C.muted }}>Jueves, 23 de Abril 2026</div>
+        <div style={{ fontSize:24, fontWeight:700, color:C.earth, marginTop:4 }}>Buenos días 🌿</div>
+        <div style={{ fontSize:13, color:C.muted, marginTop:2 }}>Curicó, Maule · 18°C ⛅</div>
+      </div>
+
+      {/* Alerta crítica */}
+      <div onClick={onNavClima} style={{ background:C.icePale, border:`1.5px solid ${C.ice}66`,
+        borderLeft:`5px solid ${C.ice}`, borderRadius:14, padding:"12px 16px",
+        marginBottom:16, cursor:"pointer" }}>
+        <div style={{ display:"flex", gap:12, alignItems:"center" }}>
+          <span style={{ fontSize:24 }}>🧊</span>
+          <div style={{ flex:1 }}>
+            <div style={{ fontSize:14, fontWeight:700, color:C.earth }}>Helada nocturna — Viernes 25 Abr</div>
+            <div style={{ fontSize:12, color:C.muted, marginTop:2 }}>-2°C entre 02:00–06:00 · Floración en riesgo crítico</div>
+          </div>
+          <Badge color={C.red} bg={C.redPale}>Crítico</Badge>
+        </div>
+      </div>
+
+      {/* Stats */}
+      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:20 }}>
+        {[
+          { icon:"🌿", label:"Campos activos", valor:"2",  color:C.green,  onClick:onNavCampo },
+          { icon:"📋", label:"Aplicaciones mes", valor:"3", color:C.blue,   onClick:onNavCuaderno },
+          { icon:"⛅", label:"Alertas activas",  valor:"3", color:C.orange, onClick:onNavClima },
+          { icon:"📊", label:"Mejor precio",     valor:"🌰↑", color:C.gold, onClick:onNavMercado },
+        ].map((s,i) => (
+          <Card key={i} onClick={s.onClick} style={{ padding:"14px 16px", cursor:"pointer" }}>
+            <div style={{ fontSize:22, marginBottom:6 }}>{s.icon}</div>
+            <div style={{ fontSize:22, fontWeight:700, color:s.color }}>{s.valor}</div>
+            <div style={{ fontSize:11, color:C.muted, marginTop:2 }}>{s.label}</div>
+          </Card>
+        ))}
+      </div>
+
+      {/* Mis campos */}
+      <SLabel>🌿 Mis campos</SLabel>
+      {CAMPOS.map(c => {
+        const etapas = FENOLOGIA[c.cultivo]||[];
+        const etapa  = etapas[c.etapaActual];
+        const m      = MERCADO_DATA[c.cultivo];
+        return (
+          <Card key={c.id} onClick={onNavCampo} style={{ marginBottom:10, cursor:"pointer" }}>
+            <div style={{ display:"flex", gap:12, alignItems:"flex-start" }}>
+              <span style={{ fontSize:34 }}>{c.icon}</span>
+              <div style={{ flex:1 }}>
+                <div style={{ fontSize:15, fontWeight:700, color:C.earth }}>{c.nombre}</div>
+                <div style={{ fontSize:12, color:C.muted }}>📍 {c.comuna} · {c.ha} ha · {c.variedad}</div>
+                <div style={{ display:"flex", gap:6, marginTop:8, flexWrap:"wrap" }}>
+                  {etapa && <Badge color={C.gold} bg={C.goldPale}>{etapa.icon} {etapa.nombre}</Badge>}
+                  {m && <Badge color={m.cambio>=0?C.green:C.red} bg={m.cambio>=0?C.greenPale:C.redPale}>
+                    {m.cambio>=0?"▲":"▼"} ${m.precio}/kg
+                  </Badge>}
+                </div>
+              </div>
+              <span style={{ color:C.muted, fontSize:18 }}>›</span>
+            </div>
+            <div style={{ marginTop:12, display:"flex", gap:3 }}>
+              {etapas.map((_,i) => (
+                <div key={i} style={{ flex:1, height:4, borderRadius:2,
+                  background: i<c.etapaActual?C.green:i===c.etapaActual?C.gold:C.border }} />
+              ))}
+            </div>
+          </Card>
+        );
+      })}
+
+      {/* Accesos rápidos */}
+      <SLabel style={{ marginTop:20 }}>⚡ Acceso rápido</SLabel>
+      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
+        {[
+          { icon:"📸", label:"Diagnosticar plaga",  color:C.purple, onClick:onNavPlagas },
+          { icon:"📋", label:"Nueva aplicación",    color:C.green,  onClick:onNavCuaderno },
+          { icon:"⬇️", label:"Exportar PDF SAG",    color:C.blue,   onClick:onNavCuaderno },
+          { icon:"📊", label:"Ver mercados",        color:C.gold,   onClick:onNavMercado },
+        ].map((a,i) => (
+          <button key={i} onClick={a.onClick} style={{
+            background:C.panel, border:`1px solid ${C.border}`, borderRadius:12,
+            padding:"14px 12px", cursor:"pointer", textAlign:"left", fontFamily:"inherit",
+          }}>
+            <div style={{ fontSize:22, marginBottom:6 }}>{a.icon}</div>
+            <div style={{ fontSize:13, fontWeight:600, color:C.earth }}>{a.label}</div>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ─── MÓDULO CAMPO ─────────────────────────────────────────────────────────────
+function ModuloCampo() {
+  const [campoSel, setCampoSel] = useState(CAMPOS[0]);
+  const [etapaSel, setEtapaSel] = useState(campoSel.etapaActual);
+  const etapas = FENOLOGIA[campoSel.cultivo]||[];
+  const etapa  = etapas[etapaSel];
+
+  return (
+    <div>
+      <div style={{ display:"flex", gap:8, marginBottom:16 }}>
+        {CAMPOS.map(c => (
+          <button key={c.id} onClick={() => { setCampoSel(c); setEtapaSel(c.etapaActual); }} style={{
+            flex:1, background: campoSel.id===c.id?C.green:C.panel,
+            color: campoSel.id===c.id?C.white:C.muted,
+            border:`1px solid ${campoSel.id===c.id?C.green:C.border}`,
+            borderRadius:20, padding:"7px 12px", fontSize:12, cursor:"pointer", fontFamily:"inherit",
+          }}>{c.icon} {c.nombre.split(" ").slice(-1)[0]}</button>
+        ))}
+        <button style={{ background:"transparent", color:C.green, border:`1px dashed ${C.green}`,
+          borderRadius:20, padding:"7px 12px", fontSize:12, cursor:"pointer", fontFamily:"inherit" }}>+</button>
+      </div>
+
+      <Card style={{ marginBottom:16, borderLeft:`4px solid ${C.green}` }}>
+        <div style={{ display:"flex", gap:12, alignItems:"flex-start" }}>
+          <span style={{ fontSize:40 }}>{campoSel.icon}</span>
+          <div style={{ flex:1 }}>
+            <div style={{ fontSize:17, fontWeight:700, color:C.earth }}>{campoSel.nombre}</div>
+            <div style={{ fontSize:12, color:C.muted }}>📍 {campoSel.comuna}, {campoSel.region}</div>
+            <div style={{ display:"flex", gap:16, marginTop:10, flexWrap:"wrap" }}>
+              {[
+                { l:"Variedad", v:campoSel.variedad },
+                { l:"Superficie", v:`${campoSel.ha} ha` },
+                { l:"Plantación", v:campoSel.anoPlantacion },
+                { l:"Riego", v:campoSel.riego },
+              ].map((d,i) => (
+                <div key={i}>
+                  <div style={{ fontSize:10, color:C.muted, textTransform:"uppercase", letterSpacing:1 }}>{d.l}</div>
+                  <div style={{ fontSize:13, fontWeight:600, color:C.earth, marginTop:1 }}>{d.v}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </Card>
+
+      <SLabel>🌿 Fenología · {campoSel.cultivoLabel}</SLabel>
+      <div style={{ display:"flex", gap:4, marginBottom:16, overflowX:"auto", paddingBottom:4 }}>
+        {etapas.map((e,i) => (
+          <div key={i} onClick={() => setEtapaSel(i)} style={{
+            flex:"0 0 auto", textAlign:"center", cursor:"pointer",
+            padding:"8px 6px", borderRadius:12, minWidth:58,
+            background: etapaSel===i?C.gold:i<campoSel.etapaActual?C.greenPale:C.panel,
+            border:`2px solid ${etapaSel===i?C.gold:i===campoSel.etapaActual?C.green:C.border}`,
+          }}>
+            <div style={{ fontSize:18 }}>{e.icon}</div>
+            <div style={{ fontSize:9, color:etapaSel===i?C.gold:C.muted, fontWeight:etapaSel===i?700:400, marginTop:4, lineHeight:1.3 }}>{e.nombre}</div>
+          </div>
+        ))}
+      </div>
+
+      {etapa && (
+        <Card style={{ background: etapaSel===campoSel.etapaActual?C.goldPale:C.bg,
+          border:`1.5px solid ${etapaSel===campoSel.etapaActual?C.gold+"55":C.border}` }}>
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:12 }}>
+            <div style={{ fontSize:15, fontWeight:700, color:C.earth }}>{etapa.icon} {etapa.nombre} · {etapa.meses}</div>
+            {etapaSel===campoSel.etapaActual && <Badge color={C.gold} bg={C.goldPale+"aa"}>Etapa actual</Badge>}
+          </div>
+          {etapa.tareas.map((t,i) => (
+            <div key={i} style={{ display:"flex", gap:10, alignItems:"flex-start",
+              padding:"8px 0", borderBottom:i<etapa.tareas.length-1?`1px solid ${C.border}`:"none" }}>
+              <div style={{ width:18, height:18, borderRadius:5, border:`2px solid ${C.border}`, flexShrink:0, marginTop:1 }} />
+              <span style={{ fontSize:13, color:C.text, lineHeight:1.5 }}>{t}</span>
+            </div>
+          ))}
+        </Card>
+      )}
+    </div>
+  );
+}
+
+// ─── MÓDULO CUADERNO ──────────────────────────────────────────────────────────
+function ModuloCuaderno() {
+  const [apps, setApps] = useState(APLICACIONES);
+  const [showForm, setShowForm] = useState(false);
+  const [expandId, setExpandId] = useState(null);
+  const [pdfModal, setPdfModal] = useState(false);
+
+  const TIPO_COLOR = {
+    "Fungicida":{c:C.blue,bg:C.bluePale}, "Fertilizante":{c:C.green,bg:C.greenPale},
+    "Herbicida":{c:C.gold,bg:C.goldPale}, "Insecticida":{c:C.purple,bg:C.purplePale},
+  };
+
+  return (
+    <div>
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:16 }}>
+        <div>
+          <div style={{ fontSize:20, fontWeight:700, color:C.earth }}>Cuaderno SAG</div>
+          <div style={{ fontSize:12, color:C.muted, marginTop:2 }}>{apps.length} registros · Temporada 2025–2026</div>
+        </div>
+        <div style={{ display:"flex", gap:8 }}>
+          <Btn small variant="gold" onClick={() => setPdfModal(true)}>⬇ PDF SAG</Btn>
+          <Btn small onClick={() => setShowForm(s=>!s)}>+ Nueva</Btn>
+        </div>
+      </div>
+
+      {/* Formulario rápido */}
+      {showForm && (
+        <Card style={{ marginBottom:16, background:C.greenPale, border:`1.5px solid ${C.green}44` }}>
+          <div style={{ fontSize:14, fontWeight:700, color:C.green, marginBottom:14 }}>📝 Nueva aplicación</div>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
+            {[
+              { l:"Producto", ph:"Nombre comercial" },
+              { l:"Tipo", ph:"Fungicida / Fertilizante..." },
+              { l:"Dosis", ph:"2.5 kg/ha" },
+              { l:"Etapa", ph:"Floración" },
+              { l:"Operario", ph:"Nombre" },
+              { l:"Clima del día", ph:"20°C · Despejado" },
+              { l:"Lote SAG", ph:"CH-2026-004" },
+              { l:"PHI (días)", ph:"7" },
+            ].map((f,i) => (
+              <div key={i}>
+                <div style={{ fontSize:11, color:C.muted, marginBottom:4 }}>{f.l}</div>
+                <input placeholder={f.ph} style={{ width:"100%", padding:"9px 10px", borderRadius:8,
+                  border:`1px solid ${C.border}`, fontSize:13, fontFamily:"inherit",
+                  background:C.white, boxSizing:"border-box" }} />
+              </div>
+            ))}
+          </div>
+          <div style={{ marginTop:10 }}>
+            <div style={{ fontSize:11, color:C.muted, marginBottom:4 }}>Notas</div>
+            <textarea rows={2} placeholder="Observaciones..." style={{ width:"100%", padding:"9px 10px",
+              borderRadius:8, border:`1px solid ${C.border}`, fontSize:13,
+              fontFamily:"inherit", resize:"none", background:C.white, boxSizing:"border-box" }} />
+          </div>
+          <div style={{ display:"flex", gap:8, marginTop:12 }}>
+            <Btn style={{ flex:2 }} small onClick={() => setShowForm(false)}>Guardar registro ✓</Btn>
+            <Btn variant="ghost" small style={{ flex:1 }} onClick={() => setShowForm(false)}>Cancelar</Btn>
+          </div>
+        </Card>
+      )}
+
+      {/* Lista */}
+      {apps.map((a) => {
+        const m = TIPO_COLOR[a.tipo]||{c:C.muted,bg:C.bg};
+        const campo = CAMPOS.find(c=>c.id===a.campoId);
+        const exp = expandId===a.id;
+        return (
+          <Card key={a.id} style={{ marginBottom:10 }}>
+            <div onClick={()=>setExpandId(exp?null:a.id)} style={{ cursor:"pointer" }}>
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:8 }}>
+                <div>
+                  <div style={{ fontSize:15, fontWeight:700, color:C.earth }}>{a.producto}</div>
+                  <div style={{ fontSize:12, color:C.muted }}>{campo?.icon} {campo?.nombre} · {a.fecha}</div>
+                </div>
+                <div style={{ display:"flex", gap:6, alignItems:"center" }}>
+                  <Badge color={m.c} bg={m.bg}>{a.tipo}</Badge>
+                  <span style={{ color:C.muted }}>{exp?"▲":"▼"}</span>
+                </div>
+              </div>
+              <div style={{ display:"flex", gap:16, flexWrap:"wrap" }}>
+                {[{l:"Dosis",v:`${a.dosis} ${a.unidad}`},{l:"Etapa",v:a.etapa},{l:"Operario",v:a.operario}].map((d,j)=>(
+                  <div key={j}>
+                    <div style={{ fontSize:10, color:C.muted, textTransform:"uppercase", letterSpacing:1 }}>{d.l}</div>
+                    <div style={{ fontSize:13, color:C.text, marginTop:1, fontWeight:500 }}>{d.v}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+            {exp && (
+              <div style={{ marginTop:12, borderTop:`1px solid ${C.border}`, paddingTop:12 }}>
+                <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:10 }}>
+                  {[{l:"Fabricante",v:a.fabricante},{l:"Vol. agua",v:a.volAgua},{l:"Clima",v:a.clima},{l:"Lote",v:a.lote},{l:"PHI",v:`${a.PHI} días`}].map((d,j)=>(
+                    <div key={j}>
+                      <div style={{ fontSize:10, color:C.muted, textTransform:"uppercase", letterSpacing:1 }}>{d.l}</div>
+                      <div style={{ fontSize:13, color:C.text, marginTop:1 }}>{d.v||"—"}</div>
+                    </div>
+                  ))}
+                </div>
+                {a.notas && <div style={{ background:C.bg, borderRadius:8, padding:"8px 12px", fontSize:13, color:C.muted }}>📝 {a.notas}</div>}
+              </div>
+            )}
+          </Card>
+        );
+      })}
+
+      {/* Modal PDF SAG */}
+      {pdfModal && (
+        <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.5)",
+          display:"flex", alignItems:"flex-end", justifyContent:"center", zIndex:500 }}>
+          <div style={{ background:C.panel, borderRadius:"20px 20px 0 0", padding:24,
+            width:"100%", maxWidth:480, boxSizing:"border-box" }}>
+            <div style={{ fontSize:18, fontWeight:700, color:C.earth, marginBottom:6 }}>📄 Exportar Cuaderno SAG</div>
+            <div style={{ fontSize:13, color:C.muted, marginBottom:20, lineHeight:1.6 }}>
+              Genera el reporte oficial compatible con los requisitos del SAG Chile. Incluye todos los registros de la temporada seleccionada.
+            </div>
+            <div style={{ marginBottom:16 }}>
+              {[
+                { icon:"📊", titulo:"Reporte completo 2025–2026", desc:`${apps.length} aplicaciones · 2 campos · Todos los cultivos` },
+                { icon:"🍑", titulo:"Solo Campo Las Ciruelas",     desc:"Ciruela D'Agen · Curicó" },
+                { icon:"🌰", titulo:"Solo Parcela Los Avellanos",  desc:"Avellana Tonda · Los Ángeles" },
+              ].map((o,i) => (
+                <div key={i} style={{ display:"flex", gap:12, alignItems:"center",
+                  padding:"12px 0", borderBottom:i<2?`1px solid ${C.border}`:"none", cursor:"pointer" }}>
+                  <span style={{ fontSize:24 }}>{o.icon}</span>
+                  <div style={{ flex:1 }}>
+                    <div style={{ fontSize:14, fontWeight:600, color:C.earth }}>{o.titulo}</div>
+                    <div style={{ fontSize:12, color:C.muted }}>{o.desc}</div>
+                  </div>
+                  <span style={{ color:C.muted }}>›</span>
+                </div>
+              ))}
+            </div>
+            <div style={{ display:"flex", gap:10 }}>
+              <Btn full small onClick={() => { alert("📄 Generando PDF SAG…
+
+En producción: descarga automática del reporte oficial."); setPdfModal(false); }}>
+                Generar PDF
+              </Btn>
+              <Btn full small variant="ghost" onClick={() => setPdfModal(false)}>Cancelar</Btn>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── MÓDULO CLIMA ─────────────────────────────────────────────────────────────
+function ModuloClima() {
+  const [diaIdx, setDiaIdx] = useState(0);
+  const [alertaExp, setAlertaExp] = useState("helada");
+  const [seccion, setSeccion] = useState("pronostico");
+  const dia = PRONOSTICO[diaIdx];
+  const alertaColor = { helada:C.ice, lluvia:C.sky, calor:C.orange };
+
+  return (
+    <div>
+      <div style={{ display:"flex", gap:6, marginBottom:20 }}>
+        {[{id:"pronostico",l:"⛅ Pronóstico"},{id:"alertas",l:"🚨 Alertas (3)"},{id:"estacion",l:"📡 Estación"}].map(t=>(
+          <button key={t.id} onClick={()=>setSeccion(t.id)} style={{
+            flex:1, background:seccion===t.id?C.green:C.panel, color:seccion===t.id?C.white:C.muted,
+            border:`1px solid ${seccion===t.id?C.green:C.border}`, borderRadius:20,
+            padding:"7px 6px", fontSize:11, cursor:"pointer", fontFamily:"inherit",
+          }}>{t.l}</button>
+        ))}
+      </div>
+
+      {seccion==="pronostico" && (
+        <div>
+          <div style={{ display:"flex", gap:8, overflowX:"auto", paddingBottom:4, marginBottom:16 }}>
+            {PRONOSTICO.map((d,i)=>(
+              <div key={i} onClick={()=>setDiaIdx(i)} style={{
+                flex:"0 0 auto", width:72, background:diaIdx===i?C.green:C.panel,
+                border:`2px solid ${diaIdx===i?C.green:d.alerta?alertaColor[d.alerta]+"55":C.border}`,
+                borderRadius:12, padding:"10px 4px", textAlign:"center", cursor:"pointer",
+              }}>
+                <div style={{ fontSize:10, color:diaIdx===i?C.white:C.muted, fontWeight:600, marginBottom:4 }}>{d.dia}</div>
+                <div style={{ fontSize:20, marginBottom:4 }}>{d.icon}</div>
+                <div style={{ fontSize:13, fontWeight:700, color:diaIdx===i?C.white:C.earth }}>{d.max}°</div>
+                <div style={{ fontSize:10, color:diaIdx===i?"rgba(255,255,255,0.7)":d.min<0?C.ice:C.muted }}>{d.min}°</div>
+                {d.alerta && !diaIdx===i && <div style={{ width:5, height:5, borderRadius:"50%", background:alertaColor[d.alerta], margin:"3px auto 0" }} />}
+              </div>
+            ))}
+          </div>
+          <Card style={{ borderLeft:`4px solid ${dia.alerta?alertaColor[dia.alerta]:C.border}` }}>
+            <div style={{ display:"flex", gap:12, alignItems:"center", marginBottom:14 }}>
+              <span style={{ fontSize:36 }}>{dia.icon}</span>
+              <div>
+                <div style={{ fontSize:17, fontWeight:700, color:C.earth }}>{dia.dia} — {["23","24","25","26","27","28","29"][diaIdx]} Abr</div>
+                {dia.alerta && <Badge color={alertaColor[dia.alerta]} bg={alertaColor[dia.alerta]+"22"}>⚠️ Alerta {dia.alerta}</Badge>}
+              </div>
+            </div>
+            <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:8 }}>
+              {[{icon:"🌡️",l:"Máx.",v:`${dia.max}°C`},{icon:"🌡️",l:"Mín.",v:`${dia.min}°C`,red:dia.min<0},
+                {icon:"🌧️",l:"Lluvia",v:`${dia.lluvia}mm`}].map((m,i)=>(
+                <div key={i} style={{ background:C.bg, borderRadius:8, padding:"10px 6px", textAlign:"center" }}>
+                  <div style={{ fontSize:16 }}>{m.icon}</div>
+                  <div style={{ fontSize:14, fontWeight:700, color:m.red?C.ice:C.earth, marginTop:3 }}>{m.v}</div>
+                  <div style={{ fontSize:9, color:C.muted, textTransform:"uppercase", letterSpacing:1 }}>{m.l}</div>
+                </div>
+              ))}
+            </div>
+          </Card>
+        </div>
+      )}
+
+      {seccion==="alertas" && ALERTAS_CLIMA.map(a=>(
+        <div key={a.tipo} onClick={()=>setAlertaExp(alertaExp===a.tipo?null:a.tipo)}
+          style={{ background:C.panel, border:`1.5px solid ${a.color}33`, borderLeft:`5px solid ${a.color}`,
+            borderRadius:14, padding:16, marginBottom:12, cursor:"pointer" }}>
+          <div style={{ display:"flex", gap:12, alignItems:"center" }}>
+            <span style={{ fontSize:26 }}>{a.icon}</span>
+            <div style={{ flex:1 }}>
+              <div style={{ fontSize:14, fontWeight:700, color:C.earth }}>{a.titulo}</div>
+              <Badge color={a.nivel==="crítico"?C.red:C.orange} bg={a.nivel==="crítico"?C.redPale:C.orangePale}>{a.nivel}</Badge>
+            </div>
+            <span style={{ color:C.muted }}>{alertaExp===a.tipo?"▲":"▼"}</span>
+          </div>
+          {alertaExp===a.tipo && (
+            <div style={{ marginTop:12, paddingTop:12, borderTop:`1px solid ${C.border}` }}>
+              <div style={{ fontSize:12, fontWeight:700, color:a.color, marginBottom:8 }}>✅ Acciones recomendadas</div>
+              {["Activar sistema antihielada 30 min antes","Encender calefactores en zonas bajas","Posponer aplicaciones foliares","Revisar mallas térmicas en plantas jóvenes"].map((ac,i)=>(
+                <div key={i} style={{ display:"flex", gap:10, padding:"7px 0", borderBottom:i<3?`1px solid ${C.border}`:"none" }}>
+                  <div style={{ width:20, height:20, borderRadius:5, background:a.color+"22", display:"flex",
+                    alignItems:"center", justifyContent:"center", fontSize:10, color:a.color, fontWeight:700, flexShrink:0 }}>{i+1}</div>
+                  <div style={{ fontSize:13, color:C.text }}>{ac}</div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      ))}
+
+      {seccion==="estacion" && (
+        <Card>
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:14 }}>
+            <div>
+              <div style={{ fontSize:14, fontWeight:700, color:C.earth }}>Davis Vantage Pro 2</div>
+              <div style={{ fontSize:11, color:C.muted }}>Campo Las Ciruelas</div>
+            </div>
+            <Badge color={C.green} bg={C.greenPale}>🟢 Conectada</Badge>
+          </div>
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:8 }}>
+            {[{icon:"🌡️",l:"Temperatura",v:"18.4°C"},{icon:"💧",l:"Humedad",v:"62%"},{icon:"💨",l:"Viento",v:"9 km/h"},
+              {icon:"🌧️",l:"Lluvia 24h",v:"0 mm"},{icon:"❄️",l:"Horas frío",v:"1847 HF"},{icon:"🔋",l:"Batería",v:"87%"}].map((s,i)=>(
+              <div key={i} style={{ background:C.bg, borderRadius:8, padding:"10px 6px", textAlign:"center" }}>
+                <div style={{ fontSize:16 }}>{s.icon}</div>
+                <div style={{ fontSize:13, fontWeight:700, color:C.earth, marginTop:3 }}>{s.v}</div>
+                <div style={{ fontSize:9, color:C.muted, textTransform:"uppercase", letterSpacing:1 }}>{s.l}</div>
+              </div>
+            ))}
+          </div>
+          <div style={{ marginTop:14, background:C.greenPale, borderRadius:10, padding:"10px 14px", fontSize:12, color:C.green }}>
+            ✓ Requerimiento horas de frío D'Agen cubierto (mín. 700 HF)
+          </div>
+        </Card>
+      )}
+    </div>
+  );
+}
+
+// ─── MÓDULO PLAGAS ────────────────────────────────────────────────────────────
+function ModuloPlagas({ onToast }) {
+  const [sub, setSub] = useState("diagnostico");
+  const [fase, setFase] = useState("inicio");
+  const [expandida, setExpandida] = useState(null);
+
+  const PLAGAS_LISTA = [
+    { id:1, nombre:"Monilia (Monilinia laxa)", tipo:"Hongo", icon:"🍄", riesgo:"Alto", riesgoColor:C.red, riesgoBg:C.redPale,
+      sintoma:"Flores y frutos marrones, momificación, cancros con goma.",
+      solucion:"Iprodione 50 SC · 1.5 L/ha · PHI: 7 días" },
+    { id:2, nombre:"Carpocapsa (Cydia pomonella)", tipo:"Insecto", icon:"🐛", riesgo:"Alto", riesgoColor:C.red, riesgoBg:C.redPale,
+      sintoma:"Galerías hacia semilla, serrín en punto de entrada, fruto caído.",
+      solucion:"Chlorpyrifos 48% · 1 L/ha · Confusión sexual como alternativa" },
+    { id:3, nombre:"Áfido verde (Myzus persicae)", tipo:"Insecto", icon:"🪲", riesgo:"Medio", riesgoColor:C.gold, riesgoBg:C.goldPale,
+      sintoma:"Hojas enrolladas, melaza brillante, colonias verdes en brotes.",
+      solucion:"Imidacloprid 70 WG · 0.3 g/L · PHI: 3 días" },
+    { id:4, nombre:"Bacteriosis (Xanthomonas)", tipo:"Bacteria", icon:"🦠", riesgo:"Medio", riesgoColor:C.gold, riesgoBg:C.goldPale,
+      sintoma:"Manchas angulosas en hojas, cancros en ramas, exudado gomoso.",
+      solucion:"Cobre oxicloruro · 3 kg/ha · Preventivo en otoño" },
+    { id:5, nombre:"Araña bimaculada", tipo:"Ácaro", icon:"🕷️", riesgo:"Medio", riesgoColor:C.orange, riesgoBg:C.orangePale,
+      sintoma:"Punteado plateado en hoja, tela fina, bronceado en verano.",
+      solucion:"Hexitiazox (Nissorun) · 0.5 kg/ha · PHI: 7 días" },
+  ];
+
+  return (
+    <div>
+      <div style={{ display:"flex", gap:6, marginBottom:20 }}>
+        {[{id:"diagnostico",l:"📸 IA"},{id:"biblioteca",l:"📚 Biblioteca"},{id:"historial",l:"🕓 Historial"}].map(t=>(
+          <button key={t.id} onClick={()=>setSub(t.id)} style={{
+            flex:1, background:sub===t.id?C.green:C.panel, color:sub===t.id?C.white:C.muted,
+            border:`1px solid ${sub===t.id?C.green:C.border}`,
+            borderRadius:20, padding:"7px 6px", fontSize:11, cursor:"pointer", fontFamily:"inherit",
+          }}>{t.l}</button>
+        ))}
+      </div>
+
+      {sub==="diagnostico" && (
+        <div>
+          {fase==="inicio" && (
+            <Card style={{ background:`linear-gradient(135deg,${C.greenPale},${C.goldPale})`, border:`1.5px solid ${C.green}33` }}>
+              <div style={{ textAlign:"center", padding:"10px 0 6px" }}>
+                <div style={{ fontSize:52, marginBottom:10 }}>📸</div>
+                <div style={{ fontSize:17, fontWeight:700, color:C.green }}>Diagnóstico con IA</div>
+                <div style={{ fontSize:13, color:C.muted, marginTop:6, lineHeight:1.6, marginBottom:20 }}>
+                  Fotografía la parte afectada y Surco identifica la plaga en segundos
+                </div>
+                <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
+                  <button onClick={()=>{setFase("cargando");setTimeout(()=>setFase("resultado"),2500);}} style={{
+                    padding:"14px", borderRadius:12, background:C.green, color:C.white,
+                    border:"none", fontSize:14, fontWeight:700, cursor:"pointer", fontFamily:"inherit" }}>
+                    📷 Tomar foto
+                  </button>
+                  <button onClick={()=>{setFase("cargando");setTimeout(()=>setFase("resultado"),2500);}} style={{
+                    padding:"14px", borderRadius:12, background:C.panel, color:C.earth,
+                    border:`1.5px solid ${C.border}`, fontSize:14, fontWeight:700, cursor:"pointer", fontFamily:"inherit" }}>
+                    🖼️ Subir imagen
+                  </button>
+                </div>
+              </div>
+            </Card>
+          )}
+          {fase==="cargando" && (
+            <Card style={{ textAlign:"center", padding:"40px 20px" }}>
+              <div style={{ fontSize:48, marginBottom:16 }}>🔬</div>
+              <div style={{ fontSize:15, fontWeight:700, color:C.earth, marginBottom:10 }}>Analizando imagen...</div>
+              <div style={{ height:6, background:C.border, borderRadius:3, overflow:"hidden" }}>
+                <div style={{ height:"100%", borderRadius:3, background:`linear-gradient(90deg,${C.green},${C.greenLight})`,
+                  animation:"surco-progress 2.5s ease-out forwards" }} />
+              </div>
+              <style>{`@keyframes surco-progress{from{width:0}to{width:100%}}`}</style>
+            </Card>
+          )}
+          {fase==="resultado" && (
+            <div>
+              <Card style={{ borderLeft:`5px solid ${C.red}`, marginBottom:12 }}>
+                <div style={{ display:"flex", gap:12, alignItems:"center", marginBottom:12 }}>
+                  <span style={{ fontSize:36 }}>🍄</span>
+                  <div style={{ flex:1 }}>
+                    <div style={{ fontSize:11, color:C.muted, textTransform:"uppercase", letterSpacing:1 }}>Diagnóstico IA</div>
+                    <div style={{ fontSize:16, fontWeight:700, color:C.earth }}>Monilia (Monilinia laxa)</div>
+                    <div style={{ fontSize:12, color:C.muted }}>Hongo · Ciruela D'Agen</div>
+                  </div>
+                  <div style={{ textAlign:"center" }}>
+                    <div style={{ fontSize:22, fontWeight:700, color:C.green }}>94%</div>
+                    <div style={{ fontSize:10, color:C.muted }}>confianza</div>
+                  </div>
+                </div>
+                <div style={{ height:6, background:C.border, borderRadius:3, overflow:"hidden", marginBottom:12 }}>
+                  <div style={{ height:"100%", width:"94%", background:`linear-gradient(90deg,${C.green},${C.greenLight})`, borderRadius:3 }} />
+                </div>
+                <div style={{ background:C.goldPale, borderRadius:10, padding:"12px 14px" }}>
+                  <div style={{ fontSize:12, fontWeight:700, color:C.gold, marginBottom:6 }}>💊 Tratamiento recomendado</div>
+                  <div style={{ fontSize:13, color:C.earth }}>Iprodione 50 SC (Rovral) · 1.5 L/ha</div>
+                  <div style={{ fontSize:12, color:C.muted, marginTop:3 }}>Aplicar en floración y cuaja · PHI: 7 días</div>
+                </div>
+              </Card>
+              <div style={{ display:"flex", gap:10 }}>
+                <Btn full style={{ flex:2 }} onClick={()=>{ onToast("✅ Monilia registrada en cuaderno"); setFase("inicio"); }}>
+                  📋 Registrar en cuaderno
+                </Btn>
+                <Btn full variant="ghost" style={{ flex:1 }} onClick={()=>setFase("inicio")}>
+                  Nueva foto
+                </Btn>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {sub==="biblioteca" && PLAGAS_LISTA.map(p=>(
+        <Card key={p.id} style={{ marginBottom:10 }}>
+          <div onClick={()=>setExpandida(expandida===p.id?null:p.id)} style={{ cursor:"pointer" }}>
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:8 }}>
+              <div style={{ display:"flex", gap:10, alignItems:"center" }}>
+                <span style={{ fontSize:28 }}>{p.icon}</span>
+                <div>
+                  <div style={{ fontSize:14, fontWeight:700, color:C.earth }}>{p.nombre}</div>
+                  <div style={{ fontSize:12, color:C.muted }}>{p.tipo}</div>
+                </div>
+              </div>
+              <div style={{ display:"flex", gap:6, alignItems:"center" }}>
+                <Badge color={p.riesgoColor} bg={p.riesgoBg}>{p.riesgo}</Badge>
+                <span style={{ color:C.muted }}>{expandida===p.id?"▲":"▼"}</span>
+              </div>
+            </div>
+          </div>
+          {expandida===p.id && (
+            <div style={{ borderTop:`1px solid ${C.border}`, paddingTop:12, marginTop:4 }}>
+              <div style={{ background:C.redPale, borderRadius:8, padding:"10px 12px", marginBottom:10 }}>
+                <div style={{ fontSize:11, color:C.red, fontWeight:700, marginBottom:4 }}>🔎 SÍNTOMAS</div>
+                <div style={{ fontSize:13, color:C.text }}>{p.sintoma}</div>
+              </div>
+              <div style={{ background:C.goldPale, borderRadius:8, padding:"10px 12px", marginBottom:12 }}>
+                <div style={{ fontSize:11, color:C.gold, fontWeight:700, marginBottom:4 }}>💊 SOLUCIÓN</div>
+                <div style={{ fontSize:13, color:C.text }}>{p.solucion}</div>
+              </div>
+              <Btn small onClick={()=>onToast(`✅ ${p.nombre} registrada en cuaderno`)}>📋 Registrar aplicación</Btn>
+            </div>
+          )}
+        </Card>
+      ))}
+
+      {sub==="historial" && [
+        { fecha:"18 Abr", cultivo:"Ciruela", diag:"Monilia", confianza:94, estado:"Tratado" },
+        { fecha:"05 Abr", cultivo:"Ciruela", diag:"Áfido verde", confianza:88, estado:"Pendiente" },
+        { fecha:"20 Mar", cultivo:"Avellana", diag:"Bacteriosis", confianza:91, estado:"Tratado" },
+      ].map((h,i)=>(
+        <Card key={i} style={{ marginBottom:10 }}>
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start" }}>
+            <div>
+              <div style={{ fontSize:14, fontWeight:700, color:C.earth }}>{h.diag}</div>
+              <div style={{ fontSize:12, color:C.muted, marginTop:2 }}>🌿 {h.cultivo} · {h.fecha}</div>
+            </div>
+            <Badge color={h.estado==="Tratado"?C.green:C.red} bg={h.estado==="Tratado"?C.greenPale:C.redPale}>{h.estado}</Badge>
+          </div>
+          <div style={{ marginTop:10, height:4, background:C.border, borderRadius:2 }}>
+            <div style={{ height:"100%", width:`${h.confianza}%`, background:`linear-gradient(90deg,${C.green},${C.greenLight})`, borderRadius:2 }} />
+          </div>
+          <div style={{ fontSize:11, color:C.muted, marginTop:4 }}>{h.confianza}% confianza IA</div>
+        </Card>
+      ))}
+    </div>
+  );
+}
+
+// ─── MÓDULO MERCADO ───────────────────────────────────────────────────────────
+function ModuloMercado() {
+  const [prodSel, setProdSel] = useState("ciruela");
+  const m = MERCADO_DATA[prodSel];
+
+  return (
+    <div>
+      <div style={{ background:C.goldPale, border:`1px solid ${C.gold}44`, borderRadius:12,
+        padding:"10px 14px", marginBottom:16, fontSize:13, color:C.earthMid, lineHeight:1.6 }}>
+        💡 Los precios son <strong>orientativos</strong> para planificar la temporada de venta. En producción conectamos datos en tiempo real de <strong>ODEPA y ProChile</strong>.
+      </div>
+
+      {/* Selector producto */}
+      <div style={{ display:"flex", gap:8, marginBottom:16, overflowX:"auto" }}>
+        {Object.entries(MERCADO_DATA).map(([k,v])=>(
+          <button key={k} onClick={()=>setProdSel(k)} style={{
+            background: prodSel===k?v.color:C.panel, color: prodSel===k?C.white:C.muted,
+            border:`1px solid ${prodSel===k?v.color:C.border}`,
+            borderRadius:20, padding:"7px 14px", fontSize:13,
+            cursor:"pointer", fontFamily:"inherit", whiteSpace:"nowrap",
+          }}>{v.icon} {k.charAt(0).toUpperCase()+k.slice(1)}</button>
+        ))}
+      </div>
+
+      {/* Precio */}
+      <Card style={{ borderLeft:`5px solid ${m.color}`, marginBottom:14 }}>
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start" }}>
+          <div>
+            <div style={{ fontSize:11, color:C.muted, textTransform:"uppercase", letterSpacing:1 }}>Precio internacional FOB</div>
+            <div style={{ fontSize:32, fontWeight:700, color:C.earth, marginTop:4 }}>${m.precio} <span style={{ fontSize:13, color:C.muted }}>USD/kg</span></div>
+            <div style={{ fontSize:13, color:m.cambio>=0?C.green:C.red, marginTop:4 }}>
+              {m.cambio>=0?"▲":"▼"} {Math.abs(m.cambio)}% vs semana anterior
+            </div>
+          </div>
+          <div style={{ textAlign:"right" }}>
+            <div style={{ fontSize:11, color:C.muted }}>Volumen exportado</div>
+            <div style={{ fontSize:15, fontWeight:600, color:C.earth, marginTop:3 }}>{m.volumen}</div>
+            <div style={{ fontSize:11, color:C.muted, marginTop:6 }}>Top comprador</div>
+            <div style={{ fontSize:13, fontWeight:600, color:C.earth }}>{m.topComprador}</div>
+          </div>
+        </div>
+      </Card>
+
+      {/* Tendencia */}
+      <Card style={{ marginBottom:14 }}>
+        <div style={{ fontSize:12, color:C.muted, textTransform:"uppercase", letterSpacing:1.5, marginBottom:12 }}>📈 Tendencia de precio (USD/kg)</div>
+        <ResponsiveContainer width="100%" height={120}>
+          <LineChart data={m.tendencia}>
+            <XAxis dataKey="m" tick={{ fill:C.muted, fontSize:11 }} axisLine={false} tickLine={false} />
+            <YAxis tick={{ fill:C.muted, fontSize:11 }} axisLine={false} tickLine={false} domain={["auto","auto"]} />
+            <Tooltip contentStyle={{ background:C.panel, border:`1px solid ${C.border}`, borderRadius:8, fontSize:12 }} />
+            <Line type="monotone" dataKey="p" stroke={m.color} strokeWidth={3} dot={{ fill:m.color, r:4 }} />
+          </LineChart>
+        </ResponsiveContainer>
+      </Card>
+
+      {/* Mercados compradores */}
+      <Card style={{ marginBottom:14 }}>
+        <div style={{ fontSize:12, color:C.muted, textTransform:"uppercase", letterSpacing:1.5, marginBottom:14 }}>🌍 Mercados compradores activos</div>
+        {m.mercados.map((mc,i)=>(
+          <div key={i} style={{ display:"flex", alignItems:"center", gap:12, padding:"10px 0",
+            borderBottom:i<m.mercados.length-1?`1px solid ${C.border}`:"none" }}>
+            <span style={{ fontSize:20 }}>{mc.flag}</span>
+            <div style={{ flex:1 }}>
+              <div style={{ fontSize:13, fontWeight:600, color:C.earth }}>{mc.pais}</div>
+              <div style={{ height:5, borderRadius:3, marginTop:5,
+                width:`${mc.demanda}%`, background:`linear-gradient(90deg,${m.color},${C.gold})` }} />
+            </div>
+            <div style={{ textAlign:"right" }}>
+              <div style={{ fontSize:15, fontWeight:700, color:C.earth }}>${mc.precio}</div>
+              <div style={{ fontSize:13, color:mc.tend==="↑"?C.green:mc.tend==="↓"?C.red:C.muted }}>{mc.tend}</div>
+            </div>
+          </div>
+        ))}
+      </Card>
+
+      {/* Insight */}
+      <div style={{ background:`linear-gradient(135deg,${C.greenPale},${C.goldPale})`,
+        border:`1px solid ${C.gold}33`, borderRadius:14, padding:16 }}>
+        <div style={{ fontSize:11, color:C.gold, textTransform:"uppercase", letterSpacing:1.5, marginBottom:6 }}>💡 Insight AgroIntel</div>
+        <div style={{ fontSize:13, color:C.earth, lineHeight:1.7 }}>{m.insight}</div>
+      </div>
+    </div>
+  );
+}
+
+// ─── MAIN APP UNIFICADA ───────────────────────────────────────────────────────
+const NAV = [
+  { id:"home",    icon:"🏠", label:"Inicio"   },
+  { id:"campo",   icon:"🌿", label:"Cultivos"  },
+  { id:"cuaderno",icon:"📋", label:"Cuaderno" },
+  { id:"clima",   icon:"⛅", label:"Clima"    },
+  { id:"plagas",  icon:"🔍", label:"Plagas"   },
+];
+
+const SECTION_TITLES = {
+  home:"Inicio", campo:"Mis Cultivos", cuaderno:"Cuaderno SAG",
+  clima:"Clima y Alertas", plagas:"Plagas", mercado:"Mercado",
+};
+
+function SurcoApp() {
+  const [tab, setTab]       = useState("home");
+  const [toast, setToast]   = useState(null);
+
+  const showToast = msg => {
+    setToast(msg);
+    setTimeout(() => setToast(null), 3000);
+  };
+
+  const navTo = t => setTab(t);
+
+  return (
+    <div style={{ minHeight:"100vh", background:C.bg, fontFamily:"'Georgia', serif",
+      color:C.text, maxWidth:480, margin:"0 auto", paddingBottom:80 }}>
+
+      {/* TOAST */}
+      {toast && (
+        <div style={{ position:"fixed", top:20, left:"50%", transform:"translateX(-50%)",
+          background:C.green, color:C.white, padding:"12px 20px", borderRadius:12,
+          fontSize:13, fontWeight:600, zIndex:999, whiteSpace:"nowrap",
+          boxShadow:"0 4px 24px rgba(0,0,0,0.18)", pointerEvents:"none" }}>
+          {toast}
+        </div>
+      )}
+
+      {/* HEADER */}
+      <div style={{ background:C.green, padding:"14px 20px",
+        display:"flex", alignItems:"center", justifyContent:"space-between",
+        position:"sticky", top:0, zIndex:50 }}>
+        <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+          <span style={{ fontSize:22 }}>🌿</span>
+          <div>
+            <div style={{ color:C.white, fontWeight:700, fontSize:18, letterSpacing:0.5 }}>Surco</div>
+            <div style={{ color:C.greenLight, fontSize:10, letterSpacing:2, textTransform:"uppercase" }}>
+              {SECTION_TITLES[tab] || "Surco"}
+            </div>
+          </div>
+        </div>
+        <div style={{ display:"flex", gap:8, alignItems:"center" }}>
+          {/* Botón mercado */}
+          <button onClick={() => navTo("mercado")} style={{
+            background:"rgba(255,255,255,0.15)", border:"none", color:C.white,
+            borderRadius:20, padding:"5px 12px", fontSize:12, cursor:"pointer", fontFamily:"inherit",
+          }}>📊 Mercado</button>
+          <div style={{ background:"rgba(255,255,255,0.15)", borderRadius:20,
+            padding:"5px 12px", fontSize:12, color:C.white }}>
+            🚨 3
+          </div>
+        </div>
+      </div>
+
+      {/* CONTENT */}
+      <div style={{ padding:"20px 16px" }}>
+        {tab==="home"     && <ModuloHome onNavCampo={()=>navTo("campo")} onNavClima={()=>navTo("clima")} onNavCuaderno={()=>navTo("cuaderno")} onNavPlagas={()=>navTo("plagas")} onNavMercado={()=>navTo("mercado")} />}
+        {tab==="campo"    && <ModuloCampo />}
+        {tab==="cuaderno" && <ModuloCuaderno />}
+        {tab==="clima"    && <ModuloClima />}
+        {tab==="plagas"   && <ModuloPlagas onToast={showToast} />}
+        {tab==="mercado"  && <ModuloMercado />}
+      </div>
+
+      {/* BOTTOM NAV */}
+      <div style={{ position:"fixed", bottom:0, left:"50%", transform:"translateX(-50%)",
+        width:"100%", maxWidth:480, background:C.panel, borderTop:`1px solid ${C.border}`,
+        display:"flex", justifyContent:"space-around", padding:"10px 0 16px", zIndex:100 }}>
+        {NAV.map(t => (
+          <button key={t.id} onClick={() => setTab(t.id)} style={{
+            display:"flex", flexDirection:"column", alignItems:"center", gap:3,
+            background:"none", border:"none", cursor:"pointer", fontFamily:"inherit",
+            color:tab===t.id?C.green:C.muted,
+          }}>
+            <span style={{ fontSize:20 }}>{t.icon}</span>
+            <span style={{ fontSize:9, fontWeight:tab===t.id?700:400, textTransform:"uppercase", letterSpacing:.5 }}>{t.label}</span>
+            {tab===t.id && <div style={{ width:4, height:4, borderRadius:"50%", background:C.green }} />}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+    ReactDOM.createRoot(document.getElementById('root')).render(<SurcoApp />);
+  </script>
+</body>
+</html>
