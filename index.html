@@ -21,7 +21,7 @@
   <script src="https://unpkg.com/recharts@2.10.0/umd/Recharts.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
   <script type="text/babel">
-    const { useState } = React;
+    const { useState, useEffect, useRef } = React;
     const { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, BarChart, Bar, Cell, LineChart, Line } = Recharts;
 
 
@@ -865,6 +865,752 @@ function ModuloMercado() {
   );
 }
 
+// ─── MÓDULO SII ───────────────────────────────────────────────────────────────
+
+const MESES_ES = ["Enero","Febrero","Marzo","Abril","Mayo","Junio",
+                  "Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
+const IVA_TASA = 0.19;
+
+const fmtPesos = n => "$" + Math.round(n).toLocaleString("es-CL");
+
+function diasHasta(fecha) {
+  const hoy = new Date(); hoy.setHours(0,0,0,0);
+  return Math.ceil((fecha - hoy) / 86400000);
+}
+
+function getCalendario() {
+  const now = new Date();
+  const y = now.getFullYear(), m = now.getMonth();
+  const f29 = new Date(y, m + 1, 20);
+  const f22 = new Date(y, 3, 30);
+  const libros = new Date(y, m + 1, 20);
+  return [
+    { id:"f29",    icon:"📊", tramite:"Formulario 29 — IVA",          periodo:`${MESES_ES[m]} ${y}`,  fecha:f29,    desc:"Declaración mensual de IVA y PPM",              tipo:"mensual" },
+    { id:"f22",    icon:"📋", tramite:"Formulario 22 — Renta Anual",   periodo:`Año ${y-1}`,           fecha:f22,    desc:"Declaración anual del Impuesto a la Renta",     tipo:"anual"   },
+    { id:"libros", icon:"📒", tramite:"Libros Electrónicos IVA",       periodo:`${MESES_ES[m]} ${y}`,  fecha:libros, desc:"Registro de Compras y Ventas en SII",           tipo:"mensual" },
+  ].map(e => ({ ...e, dias: diasHasta(e.fecha) }))
+   .sort((a,b) => a.fecha - b.fecha);
+}
+
+// ── Calendario tributario ──────────────────────────────────────────────────────
+function CalendarioSII({ onIrF29, onIrF22 }) {
+  const calendario = getCalendario();
+  const urgBadge = dias => {
+    if (dias < 0)  return { label:"Vencido",    c:C.red,    bg:C.redPale    };
+    if (dias <= 5) return { label:`${dias}d`,   c:C.red,    bg:C.redPale    };
+    if (dias <= 15)return { label:`${dias}d`,   c:C.orange, bg:C.orangePale };
+    return           { label:`${dias}d`,   c:C.green,  bg:C.greenPale  };
+  };
+  return (
+    <div>
+      <div style={{ background:C.bluePale, border:`1px solid ${C.blue}33`, borderRadius:12,
+        padding:"10px 14px", marginBottom:16, fontSize:13, color:C.earth, lineHeight:1.6 }}>
+        📅 El <strong>F29</strong> vence el <strong>día 20</strong> del mes siguiente al período declarado.
+        Declara antes del día 12 para tener margen de revisión.
+      </div>
+      {calendario.map(ev => {
+        const urg = urgBadge(ev.dias);
+        return (
+          <div key={ev.id} onClick={() => ev.tipo==="anual" ? onIrF22() : onIrF29()}
+            style={{ background:C.panel, border:`1.5px solid ${urg.bg}`,
+              borderLeft:`5px solid ${urg.c}`, borderRadius:14, padding:16,
+              marginBottom:12, cursor:"pointer" }}>
+            <div style={{ display:"flex", gap:12, alignItems:"center" }}>
+              <span style={{ fontSize:28 }}>{ev.icon}</span>
+              <div style={{ flex:1 }}>
+                <div style={{ fontSize:14, fontWeight:700, color:C.earth }}>{ev.tramite}</div>
+                <div style={{ fontSize:12, color:C.muted, marginTop:2 }}>
+                  Período: {ev.periodo} · Vence: {ev.fecha.toLocaleDateString("es-CL")}
+                </div>
+                <div style={{ fontSize:12, color:C.muted }}>{ev.desc}</div>
+              </div>
+              <Badge color={urg.c} bg={urg.bg}>{urg.label}</Badge>
+            </div>
+          </div>
+        );
+      })}
+      <div style={{ background:C.greenPale, borderRadius:12, padding:14 }}>
+        <div style={{ fontSize:12, fontWeight:700, color:C.green, marginBottom:8 }}>✅ Buenas prácticas SII</div>
+        {["Guarda tus facturas de compra en formato electrónico (XML)",
+          "Revisa el RCV en sii.cl mensualmente para detectar errores",
+          "Registra tus boletas el mismo día que las emites",
+          "Paga el IVA antes del vencimiento para evitar intereses (1.5%/mes)"].map((t,i) => (
+          <div key={i} style={{ fontSize:12, color:C.earth, padding:"5px 0",
+            borderBottom:i<3?`1px solid ${C.border}`:"none" }}>· {t}</div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ── Wizard F29 (IVA) ──────────────────────────────────────────────────────────
+function WizardF29() {
+  const now = new Date();
+  const [paso, setPaso] = useState(1);
+  const periodo = `${MESES_ES[now.getMonth()]} ${now.getFullYear()}`;
+
+  const [ventasAfectas, setVentasAfectas]   = useState("");
+  const [ventasExentas, setVentasExentas]   = useState("");
+  const [comprasAfectas, setComprasAfectas] = useState("");
+  const [comprasExentas, setComprasExentas] = useState("");
+  const [baseRenta, setBaseRenta]           = useState("");
+  const [tasaPPM, setTasaPPM]               = useState("");
+
+  const parseCLP = v => parseFloat(v.replace(/\./g,"").replace(",",".")) || 0;
+  const vA   = parseCLP(ventasAfectas);
+  const cA   = parseCLP(comprasAfectas);
+  const deb  = Math.round(vA * IVA_TASA);
+  const cred = Math.round(cA * IVA_TASA);
+  const ivaNet = deb - cred;
+  const ppm  = Math.round(parseCLP(baseRenta) * (parseFloat(tasaPPM)||0) / 100);
+
+  const InputNum = ({ label, value, onChange, ph, prefix="$" }) => (
+    <div style={{ marginBottom:12 }}>
+      <div style={{ fontSize:11, color:C.muted, marginBottom:4, textTransform:"uppercase", letterSpacing:1 }}>{label}</div>
+      <div style={{ display:"flex", border:`1.5px solid ${C.border}`, borderRadius:8, background:C.white, overflow:"hidden" }}>
+        <span style={{ padding:"10px", color:C.muted, fontSize:13, borderRight:`1px solid ${C.border}` }}>{prefix}</span>
+        <input value={value} onChange={e=>onChange(e.target.value)} placeholder={ph||"0"}
+          style={{ flex:1, padding:"10px", border:"none", fontSize:14, fontFamily:"inherit",
+            background:"transparent", outline:"none" }} />
+      </div>
+    </div>
+  );
+
+  const Stat = ({ label, value, color=C.earth, big }) => (
+    <div style={{ background:C.bg, borderRadius:10, padding:"12px 14px" }}>
+      <div style={{ fontSize:10, color:C.muted, textTransform:"uppercase", letterSpacing:1, marginBottom:4 }}>{label}</div>
+      <div style={{ fontSize:big?22:15, fontWeight:700, color }}>{fmtPesos(value)}</div>
+    </div>
+  );
+
+  const pasos = ["Ventas","Compras","Cálculo","Resumen"];
+
+  return (
+    <div>
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:16 }}>
+        <div>
+          <div style={{ fontSize:16, fontWeight:700, color:C.earth }}>Formulario 29 — IVA</div>
+          <div style={{ fontSize:12, color:C.muted }}>Período: {periodo}</div>
+        </div>
+        <Badge color={C.blue} bg={C.bluePale}>Paso {paso}/4</Badge>
+      </div>
+      <div style={{ display:"flex", gap:4, marginBottom:20 }}>
+        {pasos.map((p,i) => (
+          <div key={i} style={{ flex:1, textAlign:"center" }}>
+            <div style={{ height:4, borderRadius:2, marginBottom:4,
+              background:i+1<=paso?C.blue:C.border }} />
+            <div style={{ fontSize:9, color:i+1<=paso?C.blue:C.muted,
+              fontWeight:i+1===paso?700:400, textTransform:"uppercase", letterSpacing:.5 }}>{p}</div>
+          </div>
+        ))}
+      </div>
+
+      {paso===1 && (
+        <Card style={{ background:C.bluePale, border:`1.5px solid ${C.blue}33` }}>
+          <div style={{ fontSize:14, fontWeight:700, color:C.blue, marginBottom:4 }}>📤 Ventas del período</div>
+          <div style={{ fontSize:12, color:C.muted, marginBottom:14 }}>Ingresa los montos <strong>netos sin IVA</strong> (base imponible)</div>
+          <InputNum label="Ventas afectas (base imponible)" value={ventasAfectas} onChange={setVentasAfectas} />
+          <InputNum label="Ventas exentas (sin IVA)"        value={ventasExentas} onChange={setVentasExentas} />
+          {vA>0 && (
+            <div style={{ background:C.white, borderRadius:8, padding:"10px 14px", marginTop:4 }}>
+              <div style={{ fontSize:12, color:C.muted }}>IVA Débito Fiscal (19%)</div>
+              <div style={{ fontSize:18, fontWeight:700, color:C.blue, marginTop:2 }}>{fmtPesos(deb)}</div>
+            </div>
+          )}
+          <Btn full onClick={()=>setPaso(2)} style={{ marginTop:14 }}>Continuar →</Btn>
+        </Card>
+      )}
+
+      {paso===2 && (
+        <Card style={{ background:"#eaf3ff", border:`1.5px solid ${C.blue}33` }}>
+          <div style={{ fontSize:14, fontWeight:700, color:C.blue, marginBottom:4 }}>📥 Compras del período</div>
+          <div style={{ fontSize:12, color:C.muted, marginBottom:14 }}>IVA soportado en tus compras (crédito fiscal)</div>
+          <InputNum label="Compras afectas (base imponible)" value={comprasAfectas} onChange={setComprasAfectas} />
+          <InputNum label="Compras exentas"                  value={comprasExentas} onChange={setComprasExentas} />
+          {cA>0 && (
+            <div style={{ background:C.white, borderRadius:8, padding:"10px 14px", marginTop:4 }}>
+              <div style={{ fontSize:12, color:C.muted }}>IVA Crédito Fiscal (19%)</div>
+              <div style={{ fontSize:18, fontWeight:700, color:C.green, marginTop:2 }}>{fmtPesos(cred)}</div>
+            </div>
+          )}
+          <div style={{ display:"flex", gap:8, marginTop:14 }}>
+            <Btn variant="ghost" onClick={()=>setPaso(1)} style={{ flex:1 }}>← Volver</Btn>
+            <Btn onClick={()=>setPaso(3)} style={{ flex:2 }}>Calcular IVA →</Btn>
+          </div>
+        </Card>
+      )}
+
+      {paso===3 && (
+        <div>
+          <Card style={{ marginBottom:12 }}>
+            <div style={{ fontSize:14, fontWeight:700, color:C.earth, marginBottom:14 }}>🧮 Resultado IVA</div>
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:14 }}>
+              <Stat label="IVA Débito Fiscal"  value={deb}  color={C.red}   />
+              <Stat label="IVA Crédito Fiscal" value={cred} color={C.green} />
+            </div>
+            <div style={{ background:ivaNet>0?C.redPale:C.greenPale, borderRadius:12, padding:16, textAlign:"center" }}>
+              <div style={{ fontSize:11, color:C.muted, marginBottom:4 }}>
+                {ivaNet>0 ? "IVA A PAGAR" : "REMANENTE CRÉDITO FISCAL"}
+              </div>
+              <div style={{ fontSize:28, fontWeight:700, color:ivaNet>0?C.red:C.green }}>
+                {fmtPesos(Math.abs(ivaNet))}
+              </div>
+            </div>
+          </Card>
+          <Card style={{ marginBottom:12 }}>
+            <div style={{ fontSize:13, fontWeight:700, color:C.earth, marginBottom:10 }}>📊 PPM — Pagos Provisionales</div>
+            <InputNum label="Ingresos brutos del período" value={baseRenta} onChange={setBaseRenta} />
+            <InputNum label="Tasa PPM (%)" value={tasaPPM} onChange={setTasaPPM} ph="Ej: 1.5" prefix="%" />
+            {ppm>0 && (
+              <div style={{ background:C.goldPale, borderRadius:8, padding:"10px 14px" }}>
+                <div style={{ fontSize:12, color:C.muted }}>PPM a pagar</div>
+                <div style={{ fontSize:16, fontWeight:700, color:C.gold }}>{fmtPesos(ppm)}</div>
+              </div>
+            )}
+          </Card>
+          <div style={{ display:"flex", gap:8 }}>
+            <Btn variant="ghost" onClick={()=>setPaso(2)} style={{ flex:1 }}>← Volver</Btn>
+            <Btn onClick={()=>setPaso(4)} style={{ flex:2 }}>Ver resumen →</Btn>
+          </div>
+        </div>
+      )}
+
+      {paso===4 && (
+        <div>
+          <Card style={{ border:`2px solid ${C.green}`, marginBottom:12 }}>
+            <div style={{ fontSize:14, fontWeight:700, color:C.green, marginBottom:14 }}>✅ Resumen F29 — {periodo}</div>
+            {[
+              { titulo:"Ventas", filas:[{l:"Ventas afectas",v:vA},{l:"IVA Débito (19%)",v:deb,bold:true,color:C.red}] },
+              { titulo:"Compras",filas:[{l:"Compras afectas",v:cA},{l:"IVA Crédito (19%)",v:cred,bold:true,color:C.green}] },
+            ].map((s,si) => (
+              <div key={si} style={{ marginBottom:14 }}>
+                <div style={{ fontSize:11, color:C.muted, textTransform:"uppercase", letterSpacing:1, marginBottom:6 }}>{s.titulo}</div>
+                {s.filas.map((r,ri) => (
+                  <div key={ri} style={{ display:"flex", justifyContent:"space-between", padding:"6px 0",
+                    borderBottom:`1px solid ${C.border}`, fontWeight:r.bold?700:400 }}>
+                    <span style={{ fontSize:13, color:C.text }}>{r.l}</span>
+                    <span style={{ fontSize:13, color:r.color||C.earth }}>{fmtPesos(r.v)}</span>
+                  </div>
+                ))}
+              </div>
+            ))}
+            {ppm>0 && (
+              <div style={{ marginBottom:14 }}>
+                <div style={{ fontSize:11, color:C.muted, textTransform:"uppercase", letterSpacing:1, marginBottom:6 }}>PPM</div>
+                <div style={{ display:"flex", justifyContent:"space-between", padding:"6px 0", borderBottom:`1px solid ${C.border}` }}>
+                  <span style={{ fontSize:13, color:C.text }}>Pago Provisional</span>
+                  <span style={{ fontSize:13, color:C.gold, fontWeight:700 }}>{fmtPesos(ppm)}</span>
+                </div>
+              </div>
+            )}
+            <div style={{ background:ivaNet>0?C.redPale:C.greenPale, borderRadius:10, padding:14, textAlign:"center" }}>
+              <div style={{ fontSize:11, color:C.muted, marginBottom:4 }}>
+                {ivaNet>0 ? "TOTAL A PAGAR SII" : "REMANENTE A FAVOR"}
+              </div>
+              <div style={{ fontSize:26, fontWeight:700, color:ivaNet>0?C.red:C.green }}>
+                {fmtPesos(Math.abs(ivaNet) + (ivaNet>0 ? ppm : 0))}
+              </div>
+            </div>
+          </Card>
+          <div style={{ background:C.goldPale, borderRadius:12, padding:14, marginBottom:12 }}>
+            <div style={{ fontSize:12, fontWeight:700, color:C.gold, marginBottom:8 }}>📋 Cómo declarar en sii.cl</div>
+            {["Ingresa a sii.cl con tu Clave Tributaria",
+              "Ir a: Servicios online → IVA → Declarar IVA (F29)",
+              "Ingresar los valores de débito y crédito calculados aquí",
+              "Revisar y confirmar el monto a pagar",
+              "Pagar mediante transferencia bancaria o pago en línea"].map((p,i) => (
+              <div key={i} style={{ display:"flex", gap:10, padding:"6px 0", borderBottom:i<4?`1px solid ${C.border}33`:"none" }}>
+                <div style={{ width:20, height:20, borderRadius:"50%", background:C.gold,
+                  color:C.white, fontSize:11, fontWeight:700, display:"flex",
+                  alignItems:"center", justifyContent:"center", flexShrink:0 }}>{i+1}</div>
+                <div style={{ fontSize:12, color:C.earth }}>{p}</div>
+              </div>
+            ))}
+          </div>
+          <div style={{ display:"flex", gap:8 }}>
+            <Btn variant="ghost" onClick={()=>{ setPaso(1); }} style={{ flex:1 }}>Nueva declaración</Btn>
+            <Btn variant="gold" style={{ flex:2 }} onClick={()=>window.open("https://www.sii.cl","_blank")}>
+              Ir a sii.cl →
+            </Btn>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Gestor de Boletas ──────────────────────────────────────────────────────────
+function GestorBoletas({ onToast }) {
+  const [boletas, setBoletas] = useState([
+    { id:1, numero:"B-001", fecha:"15/05/2026", cliente:"Pedro González",      monto:119000, detalle:"Asesoría agrícola" },
+    { id:2, numero:"B-002", fecha:"20/05/2026", cliente:"Agrícola San José",   monto:238000, detalle:"Consultoría ciruela" },
+  ]);
+  const [showForm, setShowForm] = useState(false);
+  const [form, setForm]         = useState({ cliente:"", detalle:"", montoNeto:"" });
+
+  const totalBruto = boletas.reduce((s,b) => s + b.monto, 0);
+  const totalNeto  = boletas.reduce((s,b) => s + Math.round(b.monto / 1.19), 0);
+  const totalIVA   = totalBruto - totalNeto;
+
+  const agregar = () => {
+    const neto = parseFloat(form.montoNeto.replace(/\./g,"").replace(",",".")) || 0;
+    if (!neto || !form.cliente) return;
+    setBoletas(prev => [...prev, {
+      id: Date.now(),
+      numero: `B-${String(prev.length + 1).padStart(3,"0")}`,
+      fecha: new Date().toLocaleDateString("es-CL"),
+      cliente: form.cliente,
+      monto: Math.round(neto * 1.19),
+      detalle: form.detalle,
+    }]);
+    setForm({ cliente:"", detalle:"", montoNeto:"" });
+    setShowForm(false);
+    onToast("✅ Boleta registrada");
+  };
+
+  return (
+    <div>
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:14 }}>
+        <div>
+          <div style={{ fontSize:16, fontWeight:700, color:C.earth }}>Boletas emitidas</div>
+          <div style={{ fontSize:12, color:C.muted }}>{boletas.length} documentos</div>
+        </div>
+        <Btn small onClick={() => setShowForm(s=>!s)}>+ Nueva</Btn>
+      </div>
+
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:8, marginBottom:16 }}>
+        {[{l:"Neto",v:totalNeto,c:C.earth},{l:"IVA 19%",v:totalIVA,c:C.red},{l:"Total",v:totalBruto,c:C.green}].map((s,i) => (
+          <div key={i} style={{ background:C.panel, border:`1px solid ${C.border}`, borderRadius:10, padding:"10px 8px", textAlign:"center" }}>
+            <div style={{ fontSize:9, color:C.muted, textTransform:"uppercase", letterSpacing:.5 }}>{s.l}</div>
+            <div style={{ fontSize:12, fontWeight:700, color:s.c, marginTop:4 }}>{fmtPesos(s.v)}</div>
+          </div>
+        ))}
+      </div>
+
+      {showForm && (
+        <Card style={{ marginBottom:14, background:C.greenPale, border:`1.5px solid ${C.green}33` }}>
+          <div style={{ fontSize:13, fontWeight:700, color:C.green, marginBottom:12 }}>🧾 Nueva boleta</div>
+          {[{l:"Cliente",k:"cliente",ph:"Nombre o RUT"},{l:"Detalle del servicio",k:"detalle",ph:"Descripción"},{l:"Monto neto (sin IVA)",k:"montoNeto",ph:"0"}].map(f => (
+            <div key={f.k} style={{ marginBottom:10 }}>
+              <div style={{ fontSize:11, color:C.muted, marginBottom:4 }}>{f.l}</div>
+              <input value={form[f.k]} onChange={e=>setForm(p=>({...p,[f.k]:e.target.value}))}
+                placeholder={f.ph} style={{ width:"100%", padding:"9px 10px", borderRadius:8,
+                  border:`1px solid ${C.border}`, fontSize:13, fontFamily:"inherit",
+                  background:C.white, boxSizing:"border-box" }} />
+            </div>
+          ))}
+          {form.montoNeto && (
+            <div style={{ background:C.white, borderRadius:8, padding:"8px 12px", marginBottom:10, fontSize:13 }}>
+              Total c/IVA: <strong style={{ color:C.green }}>{fmtPesos(parseFloat(form.montoNeto.replace(/\./g,"").replace(",","."))*1.19||0)}</strong>
+            </div>
+          )}
+          <div style={{ display:"flex", gap:8 }}>
+            <Btn small style={{ flex:2 }} onClick={agregar}>Guardar boleta</Btn>
+            <Btn small variant="ghost" style={{ flex:1 }} onClick={()=>setShowForm(false)}>Cancelar</Btn>
+          </div>
+        </Card>
+      )}
+
+      {boletas.map(b => (
+        <Card key={b.id} style={{ marginBottom:10 }}>
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start" }}>
+            <div>
+              <div style={{ fontSize:13, fontWeight:700, color:C.earth }}>{b.cliente}</div>
+              <div style={{ fontSize:12, color:C.muted, marginTop:2 }}>{b.numero} · {b.fecha}</div>
+              <div style={{ fontSize:12, color:C.muted }}>{b.detalle}</div>
+            </div>
+            <div style={{ textAlign:"right" }}>
+              <div style={{ fontSize:15, fontWeight:700, color:C.green }}>{fmtPesos(b.monto)}</div>
+              <div style={{ fontSize:11, color:C.muted }}>Neto: {fmtPesos(Math.round(b.monto/1.19))}</div>
+            </div>
+          </div>
+        </Card>
+      ))}
+    </div>
+  );
+}
+
+// ── Renta F22 ─────────────────────────────────────────────────────────────────
+function ResumenF22() {
+  const y = new Date().getFullYear();
+  const [check, setCheck] = useState({ cert:false, f29:false, libros:false, ppm:false, bienes:false, hon:false });
+  const toggle = k => setCheck(p => ({...p,[k]:!p[k]}));
+  const done  = Object.values(check).filter(Boolean).length;
+  const total = Object.keys(check).length;
+
+  const items = [
+    { k:"cert",   icon:"🔐", label:"Clave Tributaria SII vigente",        desc:"Accede al portal para declarar" },
+    { k:"f29",    icon:"📊", label:"F29 de los 12 meses del año",         desc:"Con sus comprobantes de pago" },
+    { k:"libros", icon:"📒", label:"Libro de compras y ventas completo",  desc:"Registro electrónico en SII" },
+    { k:"ppm",    icon:"💰", label:"PPM pagados durante el año",          desc:"Servirán como crédito contra el impuesto" },
+    { k:"bienes", icon:"🏘️", label:"Bienes raíces agrícolas (si aplica)", desc:"Declaración de propiedades rurales" },
+    { k:"hon",    icon:"🧾", label:"Boletas de honorarios recibidas",     desc:"Si tuviste gastos con independientes" },
+  ];
+
+  return (
+    <div>
+      <Card style={{ marginBottom:16, borderLeft:`4px solid ${C.purple}` }}>
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:12 }}>
+          <div>
+            <div style={{ fontSize:16, fontWeight:700, color:C.earth }}>Formulario 22 — Renta</div>
+            <div style={{ fontSize:12, color:C.muted }}>Año tributario {y} · Año comercial {y-1}</div>
+          </div>
+          <div style={{ textAlign:"center" }}>
+            <div style={{ fontSize:22, fontWeight:700, color:C.purple }}>{done}/{total}</div>
+            <div style={{ fontSize:10, color:C.muted }}>listos</div>
+          </div>
+        </div>
+        <div style={{ height:6, background:C.border, borderRadius:3, overflow:"hidden" }}>
+          <div style={{ height:"100%", width:`${(done/total)*100}%`,
+            background:`linear-gradient(90deg,${C.purple},${C.blue})`, borderRadius:3,
+            transition:"width 0.3s ease" }} />
+        </div>
+      </Card>
+
+      <SLabel>📋 Checklist de documentos</SLabel>
+      {items.map(item => (
+        <div key={item.k} onClick={()=>toggle(item.k)} style={{
+          display:"flex", gap:12, alignItems:"center",
+          background:C.panel, border:`1px solid ${check[item.k]?C.green+"55":C.border}`,
+          borderRadius:12, padding:"12px 14px", marginBottom:8, cursor:"pointer",
+        }}>
+          <div style={{ width:22, height:22, borderRadius:6, border:`2px solid ${check[item.k]?C.green:C.border}`,
+            background:check[item.k]?C.green:"transparent", display:"flex", alignItems:"center",
+            justifyContent:"center", flexShrink:0, transition:"all 0.2s" }}>
+            {check[item.k] && <span style={{ color:C.white, fontSize:13, fontWeight:700 }}>✓</span>}
+          </div>
+          <span style={{ fontSize:20 }}>{item.icon}</span>
+          <div style={{ flex:1 }}>
+            <div style={{ fontSize:13, fontWeight:600, color:C.earth,
+              textDecoration:check[item.k]?"line-through":"none" }}>{item.label}</div>
+            <div style={{ fontSize:11, color:C.muted, marginTop:2 }}>{item.desc}</div>
+          </div>
+        </div>
+      ))}
+
+      <div style={{ background:C.goldPale, borderRadius:12, padding:14, marginTop:8 }}>
+        <div style={{ fontSize:12, fontWeight:700, color:C.gold, marginBottom:8 }}>📅 Fechas clave F22</div>
+        {[{ d:"1 Abr",   e:`Apertura del proceso en sii.cl (AT ${y})` },
+          { d:"30 Abr",  e:"Plazo final para personas naturales y empresas" },
+          { d:"May/Jun", e:"SII notifica diferencias o devoluciones" }].map((f,i) => (
+          <div key={i} style={{ display:"flex", gap:12, padding:"6px 0", borderBottom:i<2?`1px solid ${C.border}33`:"none" }}>
+            <span style={{ fontSize:12, fontWeight:700, color:C.gold, minWidth:60 }}>{f.d}</span>
+            <span style={{ fontSize:12, color:C.earth }}>{f.e}</span>
+          </div>
+        ))}
+      </div>
+      <Btn full variant="gold" style={{ marginTop:14 }} onClick={()=>window.open("https://www.sii.cl","_blank")}>
+        Ir a declarar en sii.cl →
+      </Btn>
+    </div>
+  );
+}
+
+// ── Asistente IA (Paso 2) ─────────────────────────────────────────────────────
+const SII_PROMPT = `Eres un asistente tributario experto en el sistema impositivo chileno y el SII (Servicio de Impuestos Internos) de Chile. El usuario es un agricultor/empresario agrícola que usa la app Surco.
+
+Tu especialidad:
+- Formulario 29: IVA débito/crédito, remanentes, PPM, plazos (día 20 del mes siguiente)
+- Formulario 22: renta anual, créditos, devoluciones, plazo 30 de abril
+- IVA: tasa 19%, exenciones agrícolas, proporcionalidad, crédito fiscal
+- Boletas y facturas electrónicas: emisión, anulación, libros electrónicos
+- Renta presunta agrícola (Régimen 14D8): bienes raíces agrícolas, avalúo fiscal
+- Regímenes tributarios: 14A (contabilidad completa), 14D3 (transparencia), 14D8 (renta presunta)
+- PPM: tasas vigentes, cómo imputarlos en el F22
+- Plazos y vencimientos: calendario tributario chileno
+- Cómo navegar el portal sii.cl paso a paso
+
+Responde siempre en español. Sé directo y práctico — el usuario necesita saber qué hacer, no teoría. Usa listas cuando sea útil. Máximo 4 párrafos salvo que pidan más detalle. Si hay tasas o plazos que pueden cambiar, sugiere verificar en sii.cl.`;
+
+const SUGERENCIAS = [
+  "¿Cuándo vence mi F29 de este mes?",
+  "¿Cómo calculo el IVA a pagar?",
+  "¿Qué es la renta presunta agrícola?",
+  "¿Qué gastos puedo descontar en el F22?",
+  "¿Cómo anulo una boleta electrónica?",
+  "¿Cuál es la tasa del PPM para agrícola?",
+];
+
+function AsistenteSII() {
+  const [apiKey, setApiKey]   = useState(() => localStorage.getItem("surco_ak") || "");
+  const [keyInput, setKeyInput] = useState("");
+  const [showKey, setShowKey]   = useState(false);
+  const [msgs, setMsgs]         = useState([
+    { role:"assistant", content:"Hola 👋 Soy tu asistente tributario para el SII Chile. Puedo ayudarte con el F29 (IVA), F22 (renta), boletas, facturas y plazos. ¿En qué te ayudo hoy?" }
+  ]);
+  const [input, setInput]   = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError]     = useState("");
+  const endRef = useRef(null);
+
+  useEffect(() => { endRef.current?.scrollIntoView({ behavior:"smooth" }); }, [msgs, loading]);
+
+  const guardarKey = () => {
+    const k = keyInput.trim();
+    if (!k) return;
+    localStorage.setItem("surco_ak", k);
+    setApiKey(k);
+    setKeyInput("");
+  };
+
+  const olvidarKey = () => {
+    localStorage.removeItem("surco_ak");
+    setApiKey("");
+    setMsgs([{ role:"assistant", content:"Hola 👋 Soy tu asistente tributario para el SII Chile. Puedo ayudarte con el F29 (IVA), F22 (renta), boletas, facturas y plazos. ¿En qué te ayudo hoy?" }]);
+  };
+
+  const enviar = async (texto) => {
+    const txt = (texto || input).trim();
+    if (!txt || loading) return;
+    setInput("");
+    setError("");
+    const userMsg = { role:"user", content:txt };
+    setMsgs(prev => [...prev, userMsg]);
+    setLoading(true);
+
+    // Construir historial para la API (omite el saludo inicial del asistente)
+    const historial = [...msgs.slice(1), userMsg];
+
+    try {
+      const resp = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: {
+          "x-api-key": apiKey,
+          "anthropic-version": "2023-06-01",
+          "anthropic-dangerous-direct-browser-access": "true",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          model: "claude-haiku-4-5-20251001",
+          max_tokens: 1024,
+          system: SII_PROMPT,
+          messages: historial.slice(-12),
+        }),
+      });
+
+      const data = await resp.json();
+      if (!resp.ok) throw new Error(data.error?.message || `Error ${resp.status}`);
+      const reply = data.content?.[0]?.text || "(sin respuesta)";
+      setMsgs(prev => [...prev, { role:"assistant", content:reply }]);
+    } catch(e) {
+      setError(e.message);
+      setMsgs(prev => prev.slice(0,-1)); // revierte el mensaje del usuario si falla
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // ── Pantalla de configuración de API key ─────────────────────────────────────
+  if (!apiKey) {
+    return (
+      <div>
+        <div style={{ background:`linear-gradient(135deg,${C.purplePale},${C.bluePale})`,
+          border:`1.5px solid ${C.purple}33`, borderRadius:16, padding:24, textAlign:"center", marginBottom:16 }}>
+          <div style={{ fontSize:48, marginBottom:10 }}>🤖</div>
+          <div style={{ fontSize:17, fontWeight:700, color:C.earth, marginBottom:6 }}>Asistente Tributario IA</div>
+          <div style={{ fontSize:13, color:C.muted, lineHeight:1.7, marginBottom:4 }}>
+            Resuelve tus dudas del SII al instante: IVA, renta, boletas, plazos y más.
+          </div>
+          <div style={{ fontSize:12, color:C.muted }}>Powered by Claude (Anthropic)</div>
+        </div>
+
+        <Card>
+          <div style={{ fontSize:13, fontWeight:700, color:C.earth, marginBottom:12 }}>🔑 Configurar API Key</div>
+          <div style={{ fontSize:12, color:C.muted, lineHeight:1.6, marginBottom:14 }}>
+            Para usar el asistente necesitas una API key de Anthropic.
+            Créala gratis en <strong>console.anthropic.com</strong>.
+            Se guardará solo en este dispositivo.
+          </div>
+          <div style={{ fontSize:11, color:C.muted, marginBottom:6, textTransform:"uppercase", letterSpacing:1 }}>
+            Tu API Key
+          </div>
+          <div style={{ display:"flex", gap:8, marginBottom:10 }}>
+            <div style={{ flex:1, display:"flex", border:`1.5px solid ${C.border}`,
+              borderRadius:8, background:C.white, overflow:"hidden" }}>
+              <input
+                type={showKey?"text":"password"}
+                value={keyInput}
+                onChange={e => setKeyInput(e.target.value)}
+                onKeyDown={e => e.key==="Enter" && guardarKey()}
+                placeholder="sk-ant-api03-..."
+                style={{ flex:1, padding:"10px 12px", border:"none", fontSize:13,
+                  fontFamily:"inherit", background:"transparent", outline:"none" }}
+              />
+              <button onClick={()=>setShowKey(s=>!s)} style={{ padding:"0 10px", background:"none",
+                border:"none", color:C.muted, cursor:"pointer", fontSize:14 }}>
+                {showKey?"🙈":"👁️"}
+              </button>
+            </div>
+          </div>
+          <Btn full onClick={guardarKey}>Activar asistente →</Btn>
+          <div style={{ marginTop:12, background:C.goldPale, borderRadius:8, padding:"10px 12px",
+            fontSize:12, color:C.earthMid, lineHeight:1.5 }}>
+            🔒 La key se almacena solo en <strong>localStorage</strong> de tu navegador y nunca se envía a ningún servidor de Surco.
+          </div>
+        </Card>
+      </div>
+    );
+  }
+
+  // ── Chat ──────────────────────────────────────────────────────────────────────
+  return (
+    <div style={{ display:"flex", flexDirection:"column" }}>
+
+      {/* Header del chat */}
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:12 }}>
+        <div style={{ display:"flex", gap:10, alignItems:"center" }}>
+          <div style={{ width:38, height:38, borderRadius:"50%", background:`linear-gradient(135deg,${C.purple},${C.blue})`,
+            display:"flex", alignItems:"center", justifyContent:"center", fontSize:18 }}>🤖</div>
+          <div>
+            <div style={{ fontSize:14, fontWeight:700, color:C.earth }}>Asistente Tributario</div>
+            <div style={{ fontSize:11, color:C.green }}>🟢 Claude · SII Chile</div>
+          </div>
+        </div>
+        <button onClick={olvidarKey} style={{ fontSize:11, color:C.muted, background:"none",
+          border:`1px solid ${C.border}`, borderRadius:20, padding:"4px 10px",
+          cursor:"pointer", fontFamily:"inherit" }}>
+          Cambiar key
+        </button>
+      </div>
+
+      {/* Burbujas de mensajes */}
+      <div style={{ maxHeight:"52vh", overflowY:"auto", display:"flex",
+        flexDirection:"column", gap:10, marginBottom:10, paddingRight:2 }}>
+        {msgs.map((m, i) => (
+          <div key={i} style={{ display:"flex",
+            justifyContent:m.role==="user"?"flex-end":"flex-start",
+            alignItems:"flex-end", gap:6 }}>
+            {m.role==="assistant" && (
+              <div style={{ width:26, height:26, borderRadius:"50%", flexShrink:0,
+                background:`linear-gradient(135deg,${C.purple},${C.blue})`,
+                display:"flex", alignItems:"center", justifyContent:"center", fontSize:12 }}>🤖</div>
+            )}
+            <div style={{
+              maxWidth:"82%", padding:"10px 14px", fontSize:13, lineHeight:1.65,
+              borderRadius:16,
+              borderBottomRightRadius: m.role==="user"?4:16,
+              borderBottomLeftRadius:  m.role==="assistant"?4:16,
+              background: m.role==="user"?C.green:C.panel,
+              color:       m.role==="user"?C.white:C.text,
+              border:      m.role==="assistant"?`1px solid ${C.border}`:"none",
+              whiteSpace:"pre-wrap",
+            }}>
+              {m.content}
+            </div>
+          </div>
+        ))}
+
+        {/* Indicador "pensando" */}
+        {loading && (
+          <div style={{ display:"flex", alignItems:"flex-end", gap:6 }}>
+            <div style={{ width:26, height:26, borderRadius:"50%", flexShrink:0,
+              background:`linear-gradient(135deg,${C.purple},${C.blue})`,
+              display:"flex", alignItems:"center", justifyContent:"center", fontSize:12 }}>🤖</div>
+            <div style={{ background:C.panel, border:`1px solid ${C.border}`,
+              borderRadius:16, borderBottomLeftRadius:4, padding:"10px 14px" }}>
+              <div style={{ display:"flex", gap:4, alignItems:"center" }}>
+                {[0,1,2].map(j => (
+                  <div key={j} style={{ width:7, height:7, borderRadius:"50%", background:C.purple,
+                    opacity:0.4, animation:`sii-bounce 1.2s ${j*0.2}s infinite` }} />
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+        <div ref={endRef} />
+      </div>
+
+      {/* CSS para animación de los puntos */}
+      <style>{`
+        @keyframes sii-bounce {
+          0%,80%,100%{transform:translateY(0);opacity:.4}
+          40%{transform:translateY(-5px);opacity:1}
+        }
+      `}</style>
+
+      {/* Error */}
+      {error && (
+        <div style={{ background:C.redPale, border:`1px solid ${C.red}33`, borderRadius:8,
+          padding:"8px 12px", fontSize:12, color:C.red, marginBottom:8 }}>
+          ⚠️ {error} — verifica tu API key o intenta de nuevo.
+        </div>
+      )}
+
+      {/* Sugerencias rápidas (solo al inicio) */}
+      {msgs.length <= 1 && (
+        <div style={{ display:"flex", gap:6, flexWrap:"wrap", marginBottom:10 }}>
+          {SUGERENCIAS.map((s,i) => (
+            <button key={i} onClick={() => enviar(s)} style={{
+              fontSize:11, padding:"6px 11px", borderRadius:20,
+              background:C.purplePale, color:C.purple,
+              border:`1px solid ${C.purple}33`, cursor:"pointer",
+              fontFamily:"inherit", lineHeight:1.4,
+            }}>{s}</button>
+          ))}
+        </div>
+      )}
+
+      {/* Input */}
+      <div style={{ display:"flex", gap:8 }}>
+        <input
+          value={input}
+          onChange={e => setInput(e.target.value)}
+          onKeyDown={e => e.key==="Enter" && !e.shiftKey && enviar()}
+          placeholder="Escribe tu consulta tributaria..."
+          disabled={loading}
+          style={{ flex:1, padding:"11px 14px", borderRadius:12,
+            border:`1.5px solid ${input?C.purple:C.border}`,
+            fontSize:13, fontFamily:"inherit", background:C.white,
+            outline:"none", transition:"border-color 0.2s" }}
+        />
+        <button onClick={() => enviar()} disabled={loading || !input.trim()} style={{
+          width:44, height:44, borderRadius:12,
+          background: loading||!input.trim() ? C.border : `linear-gradient(135deg,${C.purple},${C.blue})`,
+          color:C.white, border:"none", fontSize:18,
+          cursor: loading||!input.trim() ? "not-allowed" : "pointer",
+          display:"flex", alignItems:"center", justifyContent:"center",
+          transition:"background 0.2s", flexShrink:0,
+        }}>↑</button>
+      </div>
+    </div>
+  );
+}
+
+// ── Módulo SII principal ───────────────────────────────────────────────────────
+function ModuloSII({ onToast }) {
+  const [subTab, setSubTab] = useState("calendario");
+  const tabs = [
+    { id:"calendario", icon:"📅", label:"Calendario" },
+    { id:"f29",        icon:"📊", label:"F29 IVA"    },
+    { id:"boletas",    icon:"🧾", label:"Boletas"    },
+    { id:"f22",        icon:"📋", label:"Renta F22"  },
+    { id:"asistente",  icon:"🤖", label:"Asistente"  },
+  ];
+  return (
+    <div>
+      <div style={{ display:"flex", gap:6, overflowX:"auto", paddingBottom:4, marginBottom:18 }}>
+        {tabs.map(t => (
+          <button key={t.id} onClick={() => setSubTab(t.id)} style={{
+            flex:"0 0 auto", display:"flex", alignItems:"center", gap:5,
+            padding:"7px 12px", borderRadius:20, fontSize:12, fontFamily:"inherit",
+            cursor:"pointer", whiteSpace:"nowrap", fontWeight:subTab===t.id?700:400,
+            background:subTab===t.id?C.green:C.panel,
+            color:subTab===t.id?C.white:C.muted,
+            border:`1px solid ${subTab===t.id?C.green:C.border}`,
+          }}>
+            <span>{t.icon}</span> {t.label}
+          </button>
+        ))}
+      </div>
+      {subTab==="calendario" && <CalendarioSII onIrF29={()=>setSubTab("f29")} onIrF22={()=>setSubTab("f22")} />}
+      {subTab==="f29"        && <WizardF29 />}
+      {subTab==="boletas"    && <GestorBoletas onToast={onToast} />}
+      {subTab==="f22"        && <ResumenF22 />}
+      {subTab==="asistente"  && <AsistenteSII />}
+    </div>
+  );
+}
+
 // ─── MAIN APP UNIFICADA ───────────────────────────────────────────────────────
 const NAV = [
   { id:"home",    icon:"🏠", label:"Inicio"   },
@@ -872,11 +1618,12 @@ const NAV = [
   { id:"cuaderno",icon:"📋", label:"Cuaderno" },
   { id:"clima",   icon:"⛅", label:"Clima"    },
   { id:"plagas",  icon:"🔍", label:"Plagas"   },
+  { id:"sii",     icon:"🏛️", label:"SII"      },
 ];
 
 const SECTION_TITLES = {
   home:"Inicio", campo:"Mis Cultivos", cuaderno:"Cuaderno SAG",
-  clima:"Clima y Alertas", plagas:"Plagas", mercado:"Mercado",
+  clima:"Clima y Alertas", plagas:"Plagas", mercado:"Mercado", sii:"SII Chile",
 };
 
 function SurcoApp() {
@@ -938,20 +1685,21 @@ function SurcoApp() {
         {tab==="clima"    && <ModuloClima />}
         {tab==="plagas"   && <ModuloPlagas onToast={showToast} />}
         {tab==="mercado"  && <ModuloMercado />}
+        {tab==="sii"      && <ModuloSII onToast={showToast} />}
       </div>
 
       {/* BOTTOM NAV */}
       <div style={{ position:"fixed", bottom:0, left:"50%", transform:"translateX(-50%)",
         width:"100%", maxWidth:480, background:C.panel, borderTop:`1px solid ${C.border}`,
-        display:"flex", justifyContent:"space-around", padding:"10px 0 16px", zIndex:100 }}>
+        display:"flex", justifyContent:"space-around", padding:"8px 0 14px", zIndex:100 }}>
         {NAV.map(t => (
           <button key={t.id} onClick={() => setTab(t.id)} style={{
-            display:"flex", flexDirection:"column", alignItems:"center", gap:3,
+            display:"flex", flexDirection:"column", alignItems:"center", gap:2,
             background:"none", border:"none", cursor:"pointer", fontFamily:"inherit",
-            color:tab===t.id?C.green:C.muted,
+            color:tab===t.id?C.green:C.muted, flex:1,
           }}>
-            <span style={{ fontSize:20 }}>{t.icon}</span>
-            <span style={{ fontSize:9, fontWeight:tab===t.id?700:400, textTransform:"uppercase", letterSpacing:.5 }}>{t.label}</span>
+            <span style={{ fontSize:18 }}>{t.icon}</span>
+            <span style={{ fontSize:8, fontWeight:tab===t.id?700:400, textTransform:"uppercase", letterSpacing:.5 }}>{t.label}</span>
             {tab===t.id && <div style={{ width:4, height:4, borderRadius:"50%", background:C.green }} />}
           </button>
         ))}
