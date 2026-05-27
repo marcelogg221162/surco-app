@@ -21,7 +21,7 @@
   <script src="https://unpkg.com/recharts@2.10.0/umd/Recharts.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
   <script type="text/babel">
-    const { useState } = React;
+    const { useState, useRef, useEffect } = React;
     const { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, BarChart, Bar, Cell, LineChart, Line } = Recharts;
 
 
@@ -66,161 +66,186 @@ const SLabel = ({ children }) => (
   <div style={{ fontSize:11, color:C.muted, textTransform:"uppercase", letterSpacing:1.5, marginBottom:10 }}>{children}</div>
 );
 
-// ─── DATA ─────────────────────────────────────────────────────────────────────
+// ─── DATA — GALLEGUILLOS AGRÍCOLA SpA ─────────────────────────────────────────
+const EMPRESA = {
+  nombre:"Galleguillos Agrícola SpA", rut:"78.418.426-9",
+  representante:"Marcelo Paulo Galleguillos González", rutRL:"18.181.383-0",
+  telefono:"+56 9 4888 5628", email:"marcelogalleguillosg@gmail.com",
+  contadora:"María Paz Hidalgo", telContadora:"+56 9 3878 8148",
+  predio:"Lote 3 PC 18 Millahue, San Vicente de Tagua Tagua",
+  rol:"00431-00005", region:"O'Higgins",
+};
+
 const CAMPOS = [
-  { id:1, nombre:"Campo Las Ciruelas", region:"Maule", comuna:"Curicó", cultivo:"ciruela",
-    cultivoLabel:"Ciruela de Secado", icon:"🍑", variedad:"D'Agen", ha:4.2,
-    anoPlantacion:2019, etapaActual:2, riego:"Goteo tecnificado",
-    coords:"34°58'S 71°14'O", tareasPendientes:3, ultimaAplicacion:"15 Abr 2026" },
-  { id:2, nombre:"Parcela Los Avellanos", region:"Biobío", comuna:"Los Ángeles", cultivo:"avellana",
-    cultivoLabel:"Avellana", icon:"🌰", variedad:"Tonda di Giffoni", ha:2.8,
-    anoPlantacion:2022, etapaActual:2, riego:"Microaspersión",
-    coords:"37°28'S 72°21'O", tareasPendientes:1, ultimaAplicacion:"12 Abr 2026" },
+  { id:1, nombre:"Millahue — Ciruelo D'Agen", region:"O'Higgins", comuna:"San Vicente de Tagua Tagua",
+    cultivo:"ciruela", cultivoLabel:"Ciruela D'Agen (Secado)", icon:"🍑",
+    variedad:"D'Agen / Mariana 2624", ha:3.0, anoPlantacion:2026, etapaActual:0,
+    riego:"Goteo tecnificado — 2 cuarteles", coords:"34°28'S 71°00'O",
+    tareasPendientes:8, ultimaAplicacion:"Plantación: Junio 2026",
+    plantas:1425, hileras:23, plantasPorHilera:59, marco:"5×4 m" },
+  { id:2, nombre:"Millahue — Maíz Grano", region:"O'Higgins", comuna:"San Vicente de Tagua Tagua",
+    cultivo:"maiz", cultivoLabel:"Maíz Grano Seco", icon:"🌽",
+    variedad:"Híbrido (por definir con COAGRA)", ha:3.0, anoPlantacion:2026, etapaActual:0,
+    riego:"Tendido — Tranque Millahue", coords:"34°28'S 71°00'O",
+    tareasPendientes:2, ultimaAplicacion:"Siembra: Octubre 2026",
+    plantas:null, hileras:null, plantasPorHilera:null, marco:null },
 ];
 
-const APLICACIONES = [
-  { id:1, campoId:1, fecha:"15/04/2026", producto:"Champion 77 WP", fabricante:"Syngenta", tipo:"Fungicida",
-    dosis:"2.5", unidad:"kg/ha", volAgua:"500 L/ha", etapa:"Floración",
-    clima:"18°C · Despejado · 5 km/h", operario:"J. Muñoz", lote:"CH-2026-001", PHI:7,
-    notas:"Aplicación preventiva Monilia." },
-  { id:2, campoId:1, fecha:"08/04/2026", producto:"Nitrofoska Especial", fabricante:"K+S", tipo:"Fertilizante",
-    dosis:"5", unidad:"kg/ha", volAgua:"400 L/ha", etapa:"Brotación",
-    clima:"20°C · Nublado · 8 km/h", operario:"R. Soto", lote:"CH-2026-002", PHI:0,
-    notas:"Refuerzo post-lluvia." },
-  { id:3, campoId:2, fecha:"12/04/2026", producto:"Roundup Max", fabricante:"Bayer", tipo:"Herbicida",
-    dosis:"1.2", unidad:"L/ha", volAgua:"200 L/ha", etapa:"Cuaja",
-    clima:"22°C · Despejado · 10 km/h", operario:"J. Muñoz", lote:"AV-2026-001", PHI:0,
-    notas:"Control malezas entre hileras." },
-];
+const [APLICACIONES_INIT] = [[]]; // Se registran desde Junio 2026
 
 const FENOLOGIA = {
   ciruela:[
-    { nombre:"Dormancia",icon:"💤",meses:"Jun–Jul",tareas:["Poda formación","Fungicida cúprico","Análisis suelo"] },
-    { nombre:"Brotación",icon:"🌱",meses:"Ago",    tareas:["Control áfidos","Fertilización N","Monitoreo heladas"] },
-    { nombre:"Floración",icon:"🌸",meses:"Sep",    tareas:["Protección heladas","Favorecer polinización","NO insecticidas"] },
-    { nombre:"Cuaja",    icon:"🟢",meses:"Oct",    tareas:["Control Monilia","Raleo si necesario","Riego establecimiento"] },
-    { nombre:"Crecimiento",icon:"📈",meses:"Nov–Dic",tareas:["Fertilización K+P","Control carpocapsa","Manejo riego"] },
-    { nombre:"Cosecha",  icon:"✂️",meses:"Ene–Feb",tareas:["Monitoreo madurez","Cosecha escalonada","Cadena de frío"] },
+    { nombre:"Plantación",    icon:"🌱", meses:"Jun 2026",      tareas:["Trazado y estacado 23 hileras","Preparación hoyos (hoyadora hidráulica)","Plantar 1.425 plantas D'Agen/MA-2624","Instalar tutores inmediatamente","Primer riego 20 L/planta","Instalar cinta goteo por hilera"] },
+    { nombre:"Establecim.",   icon:"🌿", meses:"Jul–Ago 2026",  tareas:["Riego cada 2-3 días (establecimiento)","Fertilización fósforo DAP 100 g/planta","Cobre oxicloruro preventivo","Control malezas entrehilera","Monitoreo prendimiento plantas"] },
+    { nombre:"Brotación",     icon:"💚", meses:"Ago–Sep 2026",  tareas:["Control pulgón (Imidacloprid si necesario)","Nitrógeno foliar","Bioestimulante de brotación","Trampa feromona Lobesia Botrana (SAG)","Trampa feromona Grafolita"] },
+    { nombre:"Crecimiento",   icon:"📈", meses:"Oct–Dic 2026",  tareas:["Fertilización NPK completa","Herbicida entrehilera","Control Grafolita 1a generación","Aumento gradual de riego verano","Poda de formación — 1er año"] },
+    { nombre:"Desarrollo",    icon:"☀️", meses:"Ene–Feb 2027",  tareas:["Riego máxima frecuencia (calor)","Monitoreo ácaros (Nissorun si hay presencia)","Poda en verde — brotes excesivos","2a aplicación Grafolita si hay presencia"] },
+    { nombre:"Pre-dormancia", icon:"🍂", meses:"Mar–May 2027",  tareas:["Reducir riego gradualmente","Cobre pre-caída de hojas","Zinc y magnesio foliar","Poda invernal de formación","Análisis de suelo para temporada 2"] },
   ],
-  avellana:[
-    { nombre:"Dormancia",icon:"💤",meses:"Jun–Jul",tareas:["Poda limpieza","Cúprico invernal","Análisis suelo"] },
-    { nombre:"Floración",icon:"🌸",meses:"Ago–Sep",tareas:["Polinización cruzada","Colmenas","Monitoreo heladas"] },
-    { nombre:"Cuaja",    icon:"🟢",meses:"Oct",    tareas:["Fertilización base","Control malezas","Riego tecnificado"] },
-    { nombre:"Crecimiento",icon:"📈",meses:"Nov–Ene",tareas:["Manejo hídrico","Control gusano","Fertilización foliar"] },
-    { nombre:"Cosecha",  icon:"🌰",meses:"Feb–Mar",tareas:["Derribe mecánico","Secado natural","Selección calibre"] },
+  maiz:[
+    { nombre:"Preparación",   icon:"🚜", meses:"Sep–Oct 2026",  tareas:["Arado profundo con subsolador","Análisis de suelo (laboratorio)","Incorporar enmiendas según análisis","Trazar surcos siembra"] },
+    { nombre:"Siembra",       icon:"🌰", meses:"Oct 2026",      tareas:["Siembra semilla híbrida 20 kg/há","Urea 1a aplicación — 150 kg/há","Herbicida pre-emergente","Riego tendido post-siembra"] },
+    { nombre:"Emergencia",    icon:"🌱", meses:"Nov 2026",      tareas:["Monitoreo emergencia uniforme","Control malezas post-emergencia","Riego según necesidad","Fungicida preventivo si lluvia"] },
+    { nombre:"Desarrollo",    icon:"📈", meses:"Nov–Dic 2026",  tareas:["Urea 2a aplicación — 150 kg/há (etapa 6-8 hojas)","Control gusano cogollero si hay presencia","Riego frecuente"] },
+    { nombre:"Floración",     icon:"🌼", meses:"Dic–Ene 2027",  tareas:["Urea 3a aplicación — 100 kg/há","Riego CRÍTICO en floración","Monitoreo enfermedades"] },
+    { nombre:"Cosecha",       icon:"🌾", meses:"Mar–Abr 2027",  tareas:["Monitoreo humedad grano (<14%)","Coordinar cosechadora","Venta acopiador/COAGRA","Pago crédito COAGRA","Incorporar rastrojo al suelo"] },
   ],
 };
 
 const MERCADO_DATA = {
-  ciruela:  {
-    precio:2.10, cambio:-2.1, color:"#8b4513", icon:"🍑",
-    tendencia:[{m:"Oct",p:2.30},{m:"Nov",p:2.25},{m:"Dic",p:2.20},{m:"Ene",p:2.15},{m:"Feb",p:2.10},{m:"Abr",p:2.10}],
+  ciruela:{
+    precio:1750, cambio:+3.2, color:"#8b4513", icon:"🍑", unidad:"$/kg seco",
+    tendencia:[{m:"Oct",p:1600},{m:"Nov",p:1650},{m:"Dic",p:1700},{m:"Ene",p:1750},{m:"Feb",p:1800},{m:"May",p:1750}],
     mercados:[
-      {pais:"Alemania",flag:"🇩🇪",demanda:82,precio:2.20,tend:"→"},
-      {pais:"Francia", flag:"🇫🇷",demanda:70,precio:2.15,tend:"→"},
-      {pais:"M.Oriente",flag:"🌍",demanda:65,precio:2.30,tend:"↑"},
-      {pais:"EE.UU.",  flag:"🇺🇸",demanda:50,precio:2.05,tend:"↓"},
-      {pais:"Brasil",  flag:"🇧🇷",demanda:38,precio:1.90,tend:"↑"},
+      {pais:"Agroindustria", flag:"🇨🇱", demanda:85, precio:1700, tend:"→"},
+      {pais:"Export. directa",flag:"🌍", demanda:60, precio:2850, tend:"↑"},
+      {pais:"Alemania",      flag:"🇩🇪", demanda:65, precio:2090, tend:"→"},
+      {pais:"Medio Oriente", flag:"🌍", demanda:60, precio:2185, tend:"↑"},
     ],
-    insight:"Medio Oriente en alza +18% YoY. Variedad D'Agen domina mercado europeo. Cosecha Feb–Mar en zona central.",
-    volumen:"68.200 ton", topComprador:"Alemania 🇩🇪",
+    insight:"Precio nacional: $1.600–$1.900/kg seco. Export. directa: USD 2.5–3.5/kg. Relación 3,5 kg fresco = 1 kg seco. Plena producción año 6: ~6.000 kg seco/há. Meta año 10: exportación directa Europa/M.Oriente.",
+    volumen:"68.200 ton (Chile)", topComprador:"Agroindustria 🇨🇱",
   },
-  avellana: {
-    precio:5.60, cambio:+8.7, color:"#8b6914", icon:"🌰",
-    tendencia:[{m:"Oct",p:4.80},{m:"Nov",p:5.00},{m:"Dic",p:5.20},{m:"Ene",p:5.40},{m:"Feb",p:5.50},{m:"Abr",p:5.60}],
+  maiz:{
+    precio:231, cambio:-1.5, color:"#c8860a", icon:"🌽", unidad:"$/kg grano",
+    tendencia:[{m:"Oct",p:220},{m:"Nov",p:225},{m:"Dic",p:228},{m:"Ene",p:231},{m:"Feb",p:230},{m:"May",p:231}],
     mercados:[
-      {pais:"Italia",   flag:"🇮🇹",demanda:90,precio:5.80,tend:"↑"},
-      {pais:"Alemania", flag:"🇩🇪",demanda:74,precio:5.60,tend:"↑"},
-      {pais:"España",   flag:"🇪🇸",demanda:60,precio:5.40,tend:"↑"},
-      {pais:"Francia",  flag:"🇫🇷",demanda:55,precio:5.70,tend:"→"},
-      {pais:"Turquía",  flag:"🇹🇷",demanda:40,precio:4.90,tend:"↓"},
+      {pais:"COAGRA",      flag:"🇨🇱", demanda:90, precio:231, tend:"→"},
+      {pais:"Particulares",flag:"🇨🇱", demanda:60, precio:245, tend:"↑"},
     ],
-    insight:"Cosecha turca cayó 30% — precios al alza. Chile tiene ventana estratégica 2025–2027. Orgánico premium +45%.",
-    volumen:"12.800 ton", topComprador:"Italia 🇮🇹",
+    insight:"Precio base COAGRA 2024/25: $231/kg. Mínimo rentable: $250/kg. Crédito COAGRA disponible para insumos, se paga a cosecha. Rendimiento estimado 3 há: 30.000–42.000 kg. Ingreso neto est.: $4–7 millones.",
+    volumen:"3 há — ~36.000 kg", topComprador:"COAGRA 🇨🇱",
   },
-  cereza:   {
-    precio:4.85, cambio:+12.4, color:"#c0392b", icon:"🍒",
-    tendencia:[{m:"Oct",p:3.20},{m:"Nov",p:3.80},{m:"Dic",p:4.50},{m:"Ene",p:4.85},{m:"Feb",p:4.60},{m:"Abr",p:4.20}],
+  export_dag:{
+    precio:2.85, cambio:+8.0, color:"#2d7a47", icon:"🚢", unidad:"USD/kg seco",
+    tendencia:[{m:"Oct",p:2.40},{m:"Nov",p:2.50},{m:"Dic",p:2.60},{m:"Ene",p:2.75},{m:"Feb",p:2.85},{m:"May",p:2.85}],
     mercados:[
-      {pais:"China",   flag:"🇨🇳",demanda:94,precio:5.10,tend:"↑"},
-      {pais:"EE.UU.",  flag:"🇺🇸",demanda:72,precio:4.60,tend:"↑"},
-      {pais:"Europa",  flag:"🇪🇺",demanda:58,precio:4.40,tend:"→"},
-      {pais:"Japón",   flag:"🇯🇵",demanda:45,precio:4.90,tend:"↑"},
+      {pais:"Alemania",    flag:"🇩🇪", demanda:82, precio:2.20, tend:"→"},
+      {pais:"Medio Oriente",flag:"🌍",demanda:78, precio:2.30, tend:"↑"},
+      {pais:"Francia",     flag:"🇫🇷", demanda:65, precio:2.15, tend:"→"},
+      {pais:"EE.UU.",      flag:"🇺🇸", demanda:45, precio:2.05, tend:"↓"},
     ],
-    insight:"China absorbe 68% exportaciones chilenas. Variedad Lapins y Regina lideran demanda. Temporada pico Dic–Ene.",
-    volumen:"42.300 ton", topComprador:"China 🇨🇳",
-  },
-  arandano: {
-    precio:3.40, cambio:+5.2, color:"#5b4a8a", icon:"🫐",
-    tendencia:[{m:"Oct",p:2.80},{m:"Nov",p:3.10},{m:"Dic",p:3.30},{m:"Ene",p:3.40},{m:"Feb",p:3.55},{m:"Abr",p:3.40}],
-    mercados:[
-      {pais:"EE.UU.",  flag:"🇺🇸",demanda:88,precio:3.60,tend:"↑"},
-      {pais:"Europa",  flag:"🇪🇺",demanda:76,precio:3.40,tend:"↑"},
-      {pais:"China",   flag:"🇨🇳",demanda:55,precio:3.20,tend:"↑"},
-    ],
-    insight:"Chile es el mayor exportador mundial en contra-estación. Orgánico tiene premium de +40%.",
-    volumen:"130.500 ton", topComprador:"EE.UU. 🇺🇸",
+    insight:"Meta exportación directa Galleguillos Agrícola: año 10 (2036). USD 2.5–3.5/kg vs $1.750/kg nacional. Factor multiplicador: x1.5–2.0. Requiere certificación GlobalG.A.P. y registro en Aduanas.",
+    volumen:"Fase futura", topComprador:"Alemania/M.Oriente 🇩🇪🌍",
   },
 };
 
+const COSTOS_DATA = [
+  { id:1, desc:"Anticipo 35% plantas D'Agen (1.425 und)", cat:"Plantas",        rubro:"Ciruelo",     proveedor:"Vivero Corcolén",  fecha:"20/05/2026",    monto:1895250, iva:0,       estado:"Pagado",      doc:"Contrato N°456" },
+  { id:2, desc:"Saldo 65% plantas D'Agen + IVA",          cat:"Plantas",        rubro:"Ciruelo",     proveedor:"Vivero Corcolén",  fecha:"Jun 2026",      monto:3747600, iva:711844,  estado:"Pendiente",   doc:"Fact. pendiente" },
+  { id:3, desc:"Perforación pozo 50m Ø6\"",                cat:"Infraestructura",rubro:"Riego",       proveedor:"Por contratar",   fecha:"May–Jun 2026",  monto:5500000, iva:1045000, estado:"Por contratar",doc:"Por emitir" },
+  { id:4, desc:"Electrobomba 3HP 220V 4\" acero inox",     cat:"Equipamiento",   rubro:"Riego",       proveedor:"Por cotizar",     fecha:"Jun 2026",      monto:600000,  iva:114000,  estado:"Por comprar", doc:"Por emitir" },
+  { id:5, desc:"Cable sumergible 60m + tablero eléctrico", cat:"Equipamiento",   rubro:"Riego",       proveedor:"Por cotizar",     fecha:"Jun 2026",      monto:350000,  iva:66500,   estado:"Por comprar", doc:"Por emitir" },
+  { id:6, desc:"Cinta goteo 12 rollos × 500m + tuberías",  cat:"Riego",          rubro:"Ciruelo",     proveedor:"Por cotizar",     fecha:"Jun 2026",      monto:0,       iva:0,       estado:"Por cotizar", doc:"Por emitir" },
+  { id:7, desc:"Cabezal de riego completo",                 cat:"Riego",          rubro:"Ciruelo",     proveedor:"Por cotizar",     fecha:"Jun 2026",      monto:0,       iva:0,       estado:"Por cotizar", doc:"Por emitir" },
+  { id:8, desc:"Consultor CNR — Proyecto técnico riego",   cat:"Servicios",      rubro:"Subsidios",   proveedor:"Por contratar",   fecha:"Jun 2026",      monto:750000,  iva:142500,  estado:"Por contratar",doc:"Por emitir" },
+  { id:9, desc:"Tutores y espirales (1.425 plantas)",       cat:"Insumos",        rubro:"Ciruelo",     proveedor:"Por cotizar",     fecha:"Jun 2026",      monto:285000,  iva:54150,   estado:"Por comprar", doc:"Por emitir" },
+  { id:10,desc:"Compost plantación (2 kg/planta)",          cat:"Insumos",        rubro:"Ciruelo",     proveedor:"Por cotizar",     fecha:"Jun 2026",      monto:200000,  iva:38000,   estado:"Por comprar", doc:"Por emitir" },
+  { id:11,desc:"Arriendo predio año 1 — 6 há",             cat:"Arriendo",       rubro:"Empresa",     proveedor:"Propietario",     fecha:"May 2027",      monto:2400000, iva:0,       estado:"Pendiente",   doc:"Contrato arriend" },
+  { id:12,desc:"Arriendo camioneta RAM 1500 (mensual)",     cat:"Vehículo",       rubro:"Operacional", proveedor:"M. Galleguillos", fecha:"Mensual",       monto:150000,  iva:0,       estado:"Recurrente",  doc:"Boleta honorarios"},
+  { id:13,desc:"Semilla maíz híbrida 60 kg (3 há)",        cat:"Insumos",        rubro:"Maíz",        proveedor:"COAGRA",          fecha:"Oct 2026",      monto:360000,  iva:68400,   estado:"Pendiente",   doc:"Por emitir" },
+  { id:14,desc:"Urea 46% — 24 sacos 50 kg (1.200 kg)",     cat:"Fertilizantes",  rubro:"Maíz",        proveedor:"COAGRA",          fecha:"Oct 2026",      monto:840000,  iva:159600,  estado:"Pendiente",   doc:"Por emitir" },
+];
+
+const TAREAS_DATA = [
+  { id:1, nombre:"Abrir cuenta bancaria SpA",                tipo:"Administrativa", urgencia:"alta",    estado:"Pendiente", fecha:"Esta semana" },
+  { id:2, nombre:"Ceder contrato arriendo a SpA (notaría)",  tipo:"Legal",          urgencia:"alta",    estado:"Pendiente", fecha:"Esta semana" },
+  { id:3, nombre:"Trámite DGA — Derechos agua subterránea",  tipo:"Legal/Hídrico",  urgencia:"urgente", estado:"En curso",  fecha:"Esta semana" },
+  { id:4, nombre:"Código CSG SAG — Georreferenciación predio",tipo:"Trámite SAG",   urgencia:"urgente", estado:"En curso",  fecha:"24-48 hrs" },
+  { id:5, nombre:"Contratar perforador pozo 50m Ø6\"",       tipo:"Obra",           urgencia:"alta",    estado:"Pendiente", fecha:"Mayo 2026" },
+  { id:6, nombre:"Contratar consultor CNR",                   tipo:"Subsidios",      urgencia:"alta",    estado:"Pendiente", fecha:"Junio 2026" },
+  { id:7, nombre:"Postular CNR Concurso 19-2026",            tipo:"Subsidios",      urgencia:"media",   estado:"Pendiente", fecha:"Antes 20 Ago 2026" },
+  { id:8, nombre:"Primera declaración F29 (María Paz)",      tipo:"Contabilidad",   urgencia:"alta",    estado:"Pendiente", fecha:"12 Jun 2026" },
+  { id:9, nombre:"Trazado y estacado 23 hileras",            tipo:"Plantación",     urgencia:"alta",    estado:"Pendiente", fecha:"Junio 2026" },
+  { id:10,nombre:"Plantación 1.425 plantas D'Agen",          tipo:"Plantación",     urgencia:"alta",    estado:"Pendiente", fecha:"Junio 2026" },
+  { id:11,nombre:"Instalación riego goteo C1 y C2",          tipo:"Riego",          urgencia:"alta",    estado:"Pendiente", fecha:"Junio 2026" },
+  { id:12,nombre:"Arado profundo subsolador 6 há",           tipo:"Labores",        urgencia:"media",   estado:"Pendiente", fecha:"Septiembre 2026" },
+  { id:13,nombre:"Siembra maíz 3 há (crédito COAGRA)",       tipo:"Plantación",     urgencia:"media",   estado:"Pendiente", fecha:"Octubre 2026" },
+];
+
 const ALERTAS_CLIMA = [
-  { tipo:"helada", icon:"🧊", titulo:"Helada — Vie 25 Abr", color:C.ice, nivel:"crítico" },
-  { tipo:"lluvia", icon:"🌧️", titulo:"Lluvia intensa — Sáb–Dom", color:C.sky, nivel:"moderado" },
-  { tipo:"calor",  icon:"🌡️", titulo:"Ola de calor — Mar 29 Abr", color:C.orange, nivel:"moderado" },
+  { tipo:"dga",   icon:"💧", titulo:"DGA — Derechos de agua subterránea", color:C.red,    nivel:"urgente" },
+  { tipo:"csg",   icon:"📋", titulo:"Código CSG SAG — En trámite 24-48h", color:C.gold,   nivel:"en curso" },
+  { tipo:"banco", icon:"🏦", titulo:"Cuenta bancaria SpA — Pendiente",    color:C.orange, nivel:"alta" },
 ];
 
 const PRONOSTICO = [
-  { dia:"Hoy", icon:"⛅", max:22, min:10, lluvia:0, alerta:null },
-  { dia:"Jue", icon:"🌤️", max:24, min:12, lluvia:0, alerta:null },
-  { dia:"Vie", icon:"🧊", max:16, min:-2, lluvia:0, alerta:"helada" },
-  { dia:"Sáb", icon:"🌧️", max:14, min:8,  lluvia:28, alerta:"lluvia" },
-  { dia:"Dom", icon:"🌦️", max:13, min:7,  lluvia:12, alerta:"lluvia" },
-  { dia:"Lun", icon:"🌤️", max:26, min:14, lluvia:0, alerta:null },
-  { dia:"Mar", icon:"☀️", max:34, min:16, lluvia:0, alerta:"calor" },
+  { dia:"Hoy", icon:"☀️", max:24, min:12, lluvia:0,  alerta:null },
+  { dia:"Jue", icon:"⛅", max:22, min:10, lluvia:0,  alerta:null },
+  { dia:"Vie", icon:"🌤️", max:25, min:13, lluvia:0,  alerta:null },
+  { dia:"Sáb", icon:"🌧️", max:18, min:9,  lluvia:15, alerta:"lluvia" },
+  { dia:"Dom", icon:"🌦️", max:17, min:8,  lluvia:8,  alerta:"lluvia" },
+  { dia:"Lun", icon:"☀️", max:26, min:14, lluvia:0,  alerta:null },
+  { dia:"Mar", icon:"☀️", max:28, min:15, lluvia:0,  alerta:null },
 ];
 
 // ─── MÓDULO HOME ──────────────────────────────────────────────────────────────
-function ModuloHome({ onNavCampo, onNavClima, onNavCuaderno, onNavPlagas, onNavMercado }) {
+function ModuloHome({ onNavCampo, onNavClima, onNavCuaderno, onNavPlagas, onNavMercado, onNavCostos, onNavAsistente }) {
+  const urgentes = TAREAS_DATA.filter(t => t.urgencia === "urgente" && t.estado !== "Completado");
+  const totalCostos = COSTOS_DATA.filter(c => c.estado === "Pagado").reduce((s,c)=>s+c.monto,0);
+  const pendienteCostos = COSTOS_DATA.filter(c => c.estado === "Pendiente").reduce((s,c)=>s+c.monto+c.iva,0);
+
   return (
     <div>
-      <div style={{ marginBottom:20 }}>
-        <div style={{ fontSize:12, color:C.muted }}>Jueves, 23 de Abril 2026</div>
-        <div style={{ fontSize:24, fontWeight:700, color:C.earth, marginTop:4 }}>Buenos días 🌿</div>
-        <div style={{ fontSize:13, color:C.muted, marginTop:2 }}>Curicó, Maule · 18°C ⛅</div>
+      <div style={{ marginBottom:16 }}>
+        <div style={{ fontSize:11, color:C.muted, textTransform:"uppercase", letterSpacing:1 }}>Galleguillos Agrícola SpA</div>
+        <div style={{ fontSize:22, fontWeight:700, color:C.earth, marginTop:4 }}>Bienvenido, Marcelo 🌿</div>
+        <div style={{ fontSize:12, color:C.muted, marginTop:2 }}>Millahue, San Vicente · Temporada 2026–2027</div>
       </div>
 
-      {/* Alerta crítica */}
-      <div onClick={onNavClima} style={{ background:C.icePale, border:`1.5px solid ${C.ice}66`,
-        borderLeft:`5px solid ${C.ice}`, borderRadius:14, padding:"12px 16px",
-        marginBottom:16, cursor:"pointer" }}>
-        <div style={{ display:"flex", gap:12, alignItems:"center" }}>
-          <span style={{ fontSize:24 }}>🧊</span>
-          <div style={{ flex:1 }}>
-            <div style={{ fontSize:14, fontWeight:700, color:C.earth }}>Helada nocturna — Viernes 25 Abr</div>
-            <div style={{ fontSize:12, color:C.muted, marginTop:2 }}>-2°C entre 02:00–06:00 · Floración en riesgo crítico</div>
+      {/* Alertas urgentes */}
+      {urgentes.map(t => (
+        <div key={t.id} style={{ background:C.redPale, border:`1.5px solid ${C.red}44`,
+          borderLeft:`5px solid ${C.red}`, borderRadius:14, padding:"11px 14px",
+          marginBottom:10, cursor:"pointer" }} onClick={onNavAsistente}>
+          <div style={{ display:"flex", gap:10, alignItems:"center" }}>
+            <span style={{ fontSize:20 }}>🚨</span>
+            <div style={{ flex:1 }}>
+              <div style={{ fontSize:13, fontWeight:700, color:C.earth }}>{t.nombre}</div>
+              <div style={{ fontSize:11, color:C.muted, marginTop:1 }}>{t.tipo} · {t.fecha}</div>
+            </div>
+            <Badge color={C.red} bg={C.redPale}>Urgente</Badge>
           </div>
-          <Badge color={C.red} bg={C.redPale}>Crítico</Badge>
         </div>
-      </div>
+      ))}
 
       {/* Stats */}
-      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:20 }}>
+      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:18 }}>
         {[
-          { icon:"🌿", label:"Campos activos", valor:"2",  color:C.green,  onClick:onNavCampo },
-          { icon:"📋", label:"Aplicaciones mes", valor:"3", color:C.blue,   onClick:onNavCuaderno },
-          { icon:"⛅", label:"Alertas activas",  valor:"3", color:C.orange, onClick:onNavClima },
-          { icon:"📊", label:"Mejor precio",     valor:"🌰↑", color:C.gold, onClick:onNavMercado },
+          { icon:"🍑", label:"Ciruelo D'Agen",   valor:"3 há",             color:C.green,  onClick:onNavCampo },
+          { icon:"🌽", label:"Maíz (Fase puente)",valor:"3 há",             color:C.gold,   onClick:onNavCampo },
+          { icon:"✅", label:"Pagado a la fecha", valor:`$${(totalCostos/1e6).toFixed(1)}M`, color:C.blue,   onClick:onNavCostos },
+          { icon:"⏳", label:"Pendiente de pago", valor:`$${(pendienteCostos/1e6).toFixed(1)}M`, color:C.orange, onClick:onNavCostos },
         ].map((s,i) => (
           <Card key={i} onClick={s.onClick} style={{ padding:"14px 16px", cursor:"pointer" }}>
-            <div style={{ fontSize:22, marginBottom:6 }}>{s.icon}</div>
-            <div style={{ fontSize:22, fontWeight:700, color:s.color }}>{s.valor}</div>
-            <div style={{ fontSize:11, color:C.muted, marginTop:2 }}>{s.label}</div>
+            <div style={{ fontSize:20, marginBottom:4 }}>{s.icon}</div>
+            <div style={{ fontSize:18, fontWeight:700, color:s.color }}>{s.valor}</div>
+            <div style={{ fontSize:10, color:C.muted, marginTop:2 }}>{s.label}</div>
           </Card>
         ))}
       </div>
 
       {/* Mis campos */}
-      <SLabel>🌿 Mis campos</SLabel>
+      <SLabel>🌿 Mis campos — Millahue</SLabel>
       {CAMPOS.map(c => {
         const etapas = FENOLOGIA[c.cultivo]||[];
         const etapa  = etapas[c.etapaActual];
@@ -228,20 +253,20 @@ function ModuloHome({ onNavCampo, onNavClima, onNavCuaderno, onNavPlagas, onNavM
         return (
           <Card key={c.id} onClick={onNavCampo} style={{ marginBottom:10, cursor:"pointer" }}>
             <div style={{ display:"flex", gap:12, alignItems:"flex-start" }}>
-              <span style={{ fontSize:34 }}>{c.icon}</span>
+              <span style={{ fontSize:32 }}>{c.icon}</span>
               <div style={{ flex:1 }}>
-                <div style={{ fontSize:15, fontWeight:700, color:C.earth }}>{c.nombre}</div>
-                <div style={{ fontSize:12, color:C.muted }}>📍 {c.comuna} · {c.ha} ha · {c.variedad}</div>
-                <div style={{ display:"flex", gap:6, marginTop:8, flexWrap:"wrap" }}>
+                <div style={{ fontSize:14, fontWeight:700, color:C.earth }}>{c.nombre}</div>
+                <div style={{ fontSize:11, color:C.muted }}>📍 {c.comuna} · {c.ha} ha · {c.variedad}</div>
+                <div style={{ display:"flex", gap:6, marginTop:7, flexWrap:"wrap" }}>
                   {etapa && <Badge color={C.gold} bg={C.goldPale}>{etapa.icon} {etapa.nombre}</Badge>}
                   {m && <Badge color={m.cambio>=0?C.green:C.red} bg={m.cambio>=0?C.greenPale:C.redPale}>
-                    {m.cambio>=0?"▲":"▼"} ${m.precio}/kg
+                    {m.cambio>=0?"▲":"▼"} {m.unidad==="$/kg seco"?`$${m.precio.toLocaleString('es-CL')}`:m.precio} {m.unidad}
                   </Badge>}
                 </div>
               </div>
               <span style={{ color:C.muted, fontSize:18 }}>›</span>
             </div>
-            <div style={{ marginTop:12, display:"flex", gap:3 }}>
+            <div style={{ marginTop:10, display:"flex", gap:3 }}>
               {etapas.map((_,i) => (
                 <div key={i} style={{ flex:1, height:4, borderRadius:2,
                   background: i<c.etapaActual?C.green:i===c.etapaActual?C.gold:C.border }} />
@@ -251,21 +276,38 @@ function ModuloHome({ onNavCampo, onNavClima, onNavCuaderno, onNavPlagas, onNavM
         );
       })}
 
-      {/* Accesos rápidos */}
-      <SLabel style={{ marginTop:20 }}>⚡ Acceso rápido</SLabel>
+      {/* Tareas próximas */}
+      <SLabel style={{ marginTop:18 }}>📋 Tareas próximas</SLabel>
+      {TAREAS_DATA.filter(t=>t.estado!=="Completado").slice(0,4).map((t,i)=>(
+        <div key={t.id} style={{ display:"flex", gap:10, alignItems:"center",
+          padding:"10px 0", borderBottom:`1px solid ${C.border}` }}>
+          <div style={{ width:8, height:8, borderRadius:"50%", flexShrink:0,
+            background: t.urgencia==="urgente"?C.red:t.urgencia==="alta"?C.orange:C.gold }} />
+          <div style={{ flex:1 }}>
+            <div style={{ fontSize:13, color:C.earth, fontWeight:500 }}>{t.nombre}</div>
+            <div style={{ fontSize:11, color:C.muted }}>{t.tipo} · {t.fecha}</div>
+          </div>
+          <Badge color={t.estado==="En curso"?C.blue:C.muted} bg={t.estado==="En curso"?C.bluePale:C.bg}>
+            {t.estado}
+          </Badge>
+        </div>
+      ))}
+
+      {/* Acceso rápido */}
+      <SLabel style={{ marginTop:18 }}>⚡ Acceso rápido</SLabel>
       <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
         {[
-          { icon:"📸", label:"Diagnosticar plaga",  color:C.purple, onClick:onNavPlagas },
-          { icon:"📋", label:"Nueva aplicación",    color:C.green,  onClick:onNavCuaderno },
-          { icon:"⬇️", label:"Exportar PDF SAG",    color:C.blue,   onClick:onNavCuaderno },
-          { icon:"📊", label:"Ver mercados",        color:C.gold,   onClick:onNavMercado },
+          { icon:"✦",  label:"Preguntar al asistente", color:C.green,  onClick:onNavAsistente },
+          { icon:"💰", label:"Ver costos e IVA",        color:C.blue,   onClick:onNavCostos },
+          { icon:"📋", label:"Nueva aplicación SAG",   color:C.gold,   onClick:onNavCuaderno },
+          { icon:"📊", label:"Precios D'Agen",          color:C.earthMid,onClick:onNavMercado },
         ].map((a,i) => (
           <button key={i} onClick={a.onClick} style={{
             background:C.panel, border:`1px solid ${C.border}`, borderRadius:12,
             padding:"14px 12px", cursor:"pointer", textAlign:"left", fontFamily:"inherit",
           }}>
-            <div style={{ fontSize:22, marginBottom:6 }}>{a.icon}</div>
-            <div style={{ fontSize:13, fontWeight:600, color:C.earth }}>{a.label}</div>
+            <div style={{ fontSize:22, marginBottom:6, color: i===0?C.green:"inherit" }}>{a.icon}</div>
+            <div style={{ fontSize:12, fontWeight:600, color:C.earth }}>{a.label}</div>
           </button>
         ))}
       </div>
@@ -355,7 +397,7 @@ function ModuloCampo() {
 
 // ─── MÓDULO CUADERNO ──────────────────────────────────────────────────────────
 function ModuloCuaderno() {
-  const [apps, setApps] = useState(APLICACIONES);
+  const [apps, setApps] = useState(APLICACIONES_INIT);
   const [showForm, setShowForm] = useState(false);
   const [expandId, setExpandId] = useState(null);
   const [pdfModal, setPdfModal] = useState(false);
@@ -865,18 +907,432 @@ function ModuloMercado() {
   );
 }
 
+// ─── COSTOS ───────────────────────────────────────────────────────────────────
+function ModuloCostos() {
+  const [costos, setCostos] = useState(COSTOS_DATA);
+  const [filtro, setFiltro] = useState("todos");
+  const [showForm, setShowForm] = useState(false);
+  const [form, setForm] = useState({ desc:"", categoria:"Insumo", rubro:"Ciruelo", monto:"", iva:true, estado:"Pendiente", proveedor:"", fecha:"" });
+
+  const estadoColor = {
+    "Pagado":       { c:C.green,  bg:C.greenPale  },
+    "Pendiente":    { c:C.orange, bg:C.goldPale   },
+    "Por contratar":{ c:C.purple, bg:C.purplePale },
+    "Por comprar":  { c:C.blue,   bg:C.bluePale   },
+    "Por cotizar":  { c:C.earth,  bg:"#f5f0e8"    },
+  };
+
+  const filtrados = filtro === "todos" ? costos : costos.filter(c => c.estado === filtro);
+
+  const totalNeto   = costos.reduce((a,c) => a + (c.neto ?? c.monto ?? 0), 0);
+  const totalIva    = costos.reduce((a,c) => a + (c.iva  ?? 0), 0);
+  const totalPagado = costos.filter(c => c.estado==="Pagado").reduce((a,c) => a + (c.neto ?? c.monto ?? 0) + (c.iva ?? 0), 0);
+  const ivaRecuperable = costos.filter(c => c.estado==="Pagado" && (c.iva ?? 0) > 0).reduce((a,c) => a + (c.iva ?? 0), 0);
+
+  const fmt = n => `$${(n/1e3).toFixed(0)}K`;
+  const fmtM = n => `$${(n/1e6).toFixed(2)}M`;
+
+  const guardar = () => {
+    if (!form.desc || !form.monto) return;
+    const neto  = parseInt(form.monto.replace(/\D/g,"")) || 0;
+    const iva   = form.iva ? Math.round(neto * 0.19) : 0;
+    const nuevo = { id: Date.now(), ...form, neto, iva, total: neto + iva };
+    setCostos(prev => [nuevo, ...prev]);
+    setShowForm(false);
+    setForm({ desc:"", categoria:"Insumo", rubro:"Ciruelo", monto:"", iva:true, estado:"Pendiente", proveedor:"", fecha:"" });
+  };
+
+  const TABS = ["todos","Pagado","Pendiente","Por contratar","Por comprar","Por cotizar"];
+
+  return (
+    <div>
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:16 }}>
+        <div>
+          <div style={{ fontSize:20, fontWeight:700, color:C.earth }}>Costos e IVA</div>
+          <div style={{ fontSize:12, color:C.muted, marginTop:2 }}>Temporada 2025–2026 · Galleguillos Agrícola SpA</div>
+        </div>
+        <button onClick={() => setShowForm(v => !v)} style={{
+          background: showForm ? C.muted : C.green, color:C.white, border:"none",
+          borderRadius:20, padding:"7px 16px", fontSize:13, cursor:"pointer", fontFamily:"inherit", fontWeight:600,
+        }}>{showForm ? "✕ Cancelar" : "+ Agregar"}</button>
+      </div>
+
+      {/* Resumen */}
+      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:16 }}>
+        {[
+          { label:"Total neto estimado",  val:fmtM(totalNeto),       color:C.earth  },
+          { label:"IVA acumulado",         val:fmtM(totalIva),        color:C.purple },
+          { label:"Pagado a la fecha",     val:fmtM(totalPagado),     color:C.green  },
+          { label:"IVA recuperable (F29)", val:fmtM(ivaRecuperable),  color:C.blue   },
+        ].map(s => (
+          <div key={s.label} style={{ background:C.white, borderRadius:12, padding:"12px 14px",
+            boxShadow:"0 1px 4px rgba(0,0,0,0.07)" }}>
+            <div style={{ fontSize:10, color:C.muted, textTransform:"uppercase", letterSpacing:0.5, marginBottom:4 }}>{s.label}</div>
+            <div style={{ fontSize:20, fontWeight:700, color:s.color }}>{s.val}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Formulario */}
+      {showForm && (
+        <div style={{ background:C.white, borderRadius:14, padding:16, marginBottom:16,
+          boxShadow:"0 2px 8px rgba(0,0,0,0.08)", border:`1.5px solid ${C.greenLight}` }}>
+          <div style={{ fontSize:14, fontWeight:700, color:C.earth, marginBottom:12 }}>Nuevo Costo</div>
+          {[
+            ["Descripción", "desc", "text"],
+            ["Proveedor",   "proveedor", "text"],
+            ["Fecha",       "fecha", "date"],
+            ["Monto neto (sin IVA)", "monto", "text"],
+          ].map(([lbl,key,type]) => (
+            <div key={key} style={{ marginBottom:10 }}>
+              <div style={{ fontSize:11, color:C.muted, marginBottom:3 }}>{lbl}</div>
+              <input type={type} value={form[key]}
+                onChange={e => setForm(p => ({...p,[key]:e.target.value}))}
+                style={{ width:"100%", padding:"8px 10px", borderRadius:8, border:`1px solid ${C.border}`,
+                  fontSize:13, fontFamily:"inherit", boxSizing:"border-box" }} />
+            </div>
+          ))}
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:10 }}>
+            {[
+              ["Categoría","categoria",["Insumo","Maquinaria","Mano de obra","Infraestructura","Servicio","Trámite"]],
+              ["Estado","estado",["Pendiente","Pagado","Por contratar","Por comprar","Por cotizar"]],
+              ["Rubro","rubro",["Ciruelo","Maíz","Ambos","Empresa"]],
+            ].map(([lbl,key,opts]) => (
+              <div key={key}>
+                <div style={{ fontSize:11, color:C.muted, marginBottom:3 }}>{lbl}</div>
+                <select value={form[key]} onChange={e => setForm(p => ({...p,[key]:e.target.value}))}
+                  style={{ width:"100%", padding:"8px 10px", borderRadius:8, border:`1px solid ${C.border}`,
+                    fontSize:13, fontFamily:"inherit", background:C.white }}>
+                  {opts.map(o => <option key={o}>{o}</option>)}
+                </select>
+              </div>
+            ))}
+          </div>
+          <label style={{ display:"flex", alignItems:"center", gap:8, fontSize:13, marginBottom:12, cursor:"pointer" }}>
+            <input type="checkbox" checked={form.iva} onChange={e => setForm(p => ({...p, iva:e.target.checked}))} />
+            Afecto a IVA (19%)
+          </label>
+          <button onClick={guardar} style={{
+            width:"100%", background:C.green, color:C.white, border:"none",
+            borderRadius:10, padding:"10px 0", fontSize:14, fontWeight:700, cursor:"pointer", fontFamily:"inherit",
+          }}>Guardar costo</button>
+        </div>
+      )}
+
+      {/* Filtros */}
+      <div style={{ display:"flex", gap:6, overflowX:"auto", paddingBottom:4, marginBottom:14 }}>
+        {TABS.map(t => (
+          <button key={t} onClick={() => setFiltro(t)} style={{
+            whiteSpace:"nowrap", padding:"5px 12px", borderRadius:20, fontSize:11, fontWeight:600,
+            border:`1.5px solid ${filtro===t ? C.green : C.border}`,
+            background: filtro===t ? C.green : C.white,
+            color: filtro===t ? C.white : C.muted, cursor:"pointer", fontFamily:"inherit",
+          }}>{t === "todos" ? `Todos (${costos.length})` : `${t} (${costos.filter(c=>c.estado===t).length})`}</button>
+        ))}
+      </div>
+
+      {/* Lista */}
+      <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+        {filtrados.length === 0 && (
+          <div style={{ textAlign:"center", color:C.muted, padding:"32px 0", fontSize:13 }}>Sin registros en esta categoría</div>
+        )}
+        {filtrados.map(c => {
+          const sc = estadoColor[c.estado] || { c:C.muted, bg:"#f5f5f5" };
+          return (
+            <div key={c.id} style={{ background:C.white, borderRadius:12, padding:"12px 14px",
+              boxShadow:"0 1px 4px rgba(0,0,0,0.07)" }}>
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:6 }}>
+                <div style={{ flex:1 }}>
+                  <div style={{ fontSize:13, fontWeight:600, color:C.text, marginBottom:2 }}>{c.desc}</div>
+                  <div style={{ fontSize:11, color:C.muted }}>
+                    {c.categoria ?? c.cat} · {c.rubro}{c.proveedor ? ` · ${c.proveedor}` : ""}{c.fecha ? ` · ${c.fecha}` : ""}
+                  </div>
+                </div>
+                <span style={{ background:sc.bg, color:sc.c, fontSize:10, fontWeight:700,
+                  padding:"3px 9px", borderRadius:20, whiteSpace:"nowrap", marginLeft:8 }}>{c.estado}</span>
+              </div>
+              <div style={{ display:"flex", gap:12, fontSize:12, color:C.muted }}>
+                <span>Neto: <b style={{color:C.text}}>{fmt(c.neto ?? c.monto ?? 0)}</b></span>
+                {(c.iva ?? 0) > 0 && <span>IVA: <b style={{color:C.purple}}>{fmt(c.iva)}</b></span>}
+                <span>Total: <b style={{color:C.earth}}>{fmt((c.neto ?? c.monto ?? 0) + (c.iva ?? 0))}</b></span>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ─── ASISTENTE ────────────────────────────────────────────────────────────────
+const SYSTEM_PROMPT = `Eres el asistente agrícola y empresarial de Galleguillos Agrícola SpA, empresa chilena recién constituida con plantación de ciruelas D'Agen en Millahue, San Vicente de Tagua Tagua, Región de O'Higgins. Eres como un asesor de confianza que conoce todo el proyecto.
+
+EMPRESA:
+- Razón social: Galleguillos Agrícola SpA
+- RUT: 78.418.426-9
+- Representante Legal: Marcelo Paulo Galleguillos González, RUT 18.181.383-0
+- Teléfono: +56 9 4888 5628 · Email: marcelogalleguillosg@gmail.com
+- Contadora: María Paz Hidalgo, +56 9 3878 8148
+- Predio: Lote 3 PC 18 Millahue, San Vicente de Tagua Tagua, Región O'Higgins
+- Rol SII: 00431-00005 · Coordenadas: 34°28'S 71°00'O
+
+CAMPOS:
+1. CIRUELO D'AGEN — 3,0 ha, plantación Junio 2026
+   - Variedad: D'Agen / Mariana 2624 (portainjerto)
+   - 1.425 plantas, 23 hileras × 59 plantas, marco 5×4 m
+   - Riego: goteo tecnificado (2 cuarteles independientes)
+   - Etapa actual: recién plantado (año 0 — pre-dormancia)
+   - Vivero: Corcolén (contrato N°456) — entrega escalonada mayo-junio 2026
+   - Pozo: 50 m profundidad, Ø6", bomba 3HP 220V monofásica
+
+2. MAÍZ GRANO — 3,0 ha, cultivo renta mientras ciruelo madura
+   - Cultivo de renta temporal para años 1-3 del proyecto
+   - Precio referencia: $231/kg
+
+FINANCIERO — COSTOS CLAVE:
+- Arriendo predio: $400.000/há/año (años 1-2 gratuito, años 3-4 con descuento)
+- Plantas ciruelo: ~$1.700 c/u × 1.425 = ~$2.425.000 (subsidiado CORFO 60%)
+- Bomba riego: $550.000 + instalación eléctrica $250.000
+- Postes acero inox: $200 × $2.900 = $580.000
+- Manguera gotero: $1.200.000
+- IVA es recuperable en F29 mensual (empresa SAC 1ª categoría)
+
+SUBSIDIOS Y FINANCIAMIENTO:
+- CNR: 80% del sistema de riego (en proceso, necesita consultor para postular)
+- CORFO: 60% del costo de plantas (gestionado a través de INDAP/programa)
+- COAGRA: crédito agrícola disponible (contacto establecido)
+- BancoEstado: apertura cuenta corriente empresa pendiente
+
+PRECIOS DE MERCADO:
+- Ciruela D'Agen seca (prune): $1.600–$1.900/kg nacional, USD 2.85/kg export
+- Conversión: 3,5 kg fresco = 1 kg seco
+- Proyección cosecha año 4: ~3.000 kg secos/ha → ~9.000 kg campo completo
+- Temporada de cosecha: Enero-Febrero
+- Mercados destino: Francia, Alemania, Medio Oriente (en alza)
+
+SAG — ESTADO ACTUAL:
+- Inscripción predial SAG: enviada (pendiente confirmación)
+- CSG (Cuaderno de Campo SAG): en trámite, aún no activo
+- Lobesia Botrana: notificada a marcela.idalsoaga@sag.gob.cl (trampa colocada, revisión semanal)
+- Cuaderno de aplicaciones: se registrará desde inicio de temporada (Junio 2026)
+
+TAREAS URGENTES PENDIENTES:
+1. DGA: inscripción derechos de agua pozo (urgente — sin inscripción no hay riego legal)
+2. CSG SAG: completar tramitación del cuaderno de campo
+3. Cuenta bancaria empresa: apertura BancoEstado (necesaria para subsidios)
+4. Consultor CNR: contratar para postular subsidio riego 80%
+5. F29 Mayo: declarar IVA mes anterior (contadora María Paz)
+6. Contrato arriendo: formalizar con propietario predio
+
+CALENDARIO AGRONÓMICO D'AGEN (plantación nueva):
+- Jun–Jul 2026: Plantación + establecimiento (riego frecuente, tutores)
+- Ago–Sep 2026: Brotación, manejo de brotes, primer raleo
+- Oct–Dic 2026: Crecimiento vegetativo, formación estructura árbol
+- Ene–Mar 2027: Verano — manejo hídrico crítico
+- Abr–May 2027: Pre-dormancia, aplicación herbicidas, poda formación
+- Año 3-4: Primera cosecha comercial
+
+INSTRUCCIONES DE COMPORTAMIENTO:
+1. Habla en español chileno, directo y práctico — como asesor de confianza
+2. Para asesoría agronómica: considera la etapa fenológica actual (año 0, recién plantado), las tareas urgentes y el calendario
+3. Para registrar faenas: pide producto, dosis, unidad, fecha, operario y confirma antes de cerrar
+4. Para decisiones de venta: analiza precio nacional vs export, conversión fresco/seco, ventana Ene-Feb
+5. Para costos: ayuda a calcular neto vs total con IVA, recordar qué es recuperable en F29
+6. Para trámites: guía paso a paso (DGA, SAG, CNR, CORFO, BancoEstado)
+7. Usa bullet points, respuestas concisas pero completas
+8. Cuando el usuario registre una aplicación, muestra resumen estructurado tipo cuaderno SAG
+9. Si menciona gastos, siempre separa neto, IVA (19%) y total
+10. Recuerda que el proyecto está en su fase más temprana — muchos trámites aún pendientes`;
+
+function ModuloAsistente() {
+  const [msgs, setMsgs] = useState([
+    { role:"assistant", content:"Hola Marcelo 👋 Soy tu asistente para **Galleguillos Agrícola SpA**.\n\nPuedo ayudarte con:\n• **Asesoría agronómica** — ciruelo D'Agen en establecimiento (año 0)\n• **Trámites urgentes** — DGA, SAG, CNR, BancoEstado\n• **Registrar faenas** — cuaderno SAG, aplicaciones, riegos\n• **Costos e IVA** — qué es recuperable en F29\n• **Decisiones de mercado** — precio seco vs export\n\n⚠️ Pendiente urgente: **inscripción DGA** para los derechos del pozo. Sin eso no hay riego legal.\n\n¿En qué te ayudo hoy?" }
+  ]);
+  const [input, setInput]   = useState("");
+  const [loading, setLoading] = useState(false);
+  const [apiKey, setApiKey]   = useState(() => localStorage.getItem("surco_api_key") || "");
+  const [showKey, setShowKey] = useState(false);
+  const [tempKey, setTempKey] = useState("");
+  const endRef = useRef(null);
+
+  useEffect(() => { endRef.current?.scrollIntoView({ behavior:"smooth" }); }, [msgs]);
+
+  const saveKey = () => {
+    localStorage.setItem("surco_api_key", tempKey.trim());
+    setApiKey(tempKey.trim());
+    setShowKey(false);
+  };
+
+  const QUICK = [
+    { label:"⚡ Esta semana",      msg:"¿Qué debo hacer esta semana en mis ciruelas D'Agen? Considera la fenología actual y el clima." },
+    { label:"🧊 Proteger helada",  msg:"Hay helada -2°C el viernes durante floración. ¿Qué medidas concretas tomo para proteger mis ciruelas?" },
+    { label:"💰 ¿Cuándo vender?",  msg:"Analizando el precio FOB actual de ciruela D'Agen y las tendencias de mercado, ¿cuándo y a qué destino me conviene vender?" },
+    { label:"📋 Registrar faena",  msg:"Quiero registrar una nueva aplicación en el cuaderno SAG." },
+    { label:"👷 Control costos",   msg:"Ayúdame a llevar el control de costos y jornales de esta temporada." },
+  ];
+
+  const renderText = (text) => {
+    return text.split('\n').map((line, i) => {
+      const parts = line.split(/\*\*(.*?)\*\*/g);
+      const rendered = parts.map((p, j) => j % 2 === 1 ? <strong key={j}>{p}</strong> : p);
+      return <div key={i} style={{ minHeight: line === '' ? 8 : 'auto', lineHeight:1.7 }}>{rendered}</div>;
+    });
+  };
+
+  const sendMsg = async (text) => {
+    const msg = (text || input).trim();
+    if (!msg) return;
+    if (!apiKey) { setTempKey(""); setShowKey(true); return; }
+
+    const newMsgs = [...msgs, { role:"user", content:msg }];
+    setMsgs(newMsgs);
+    setInput("");
+    setLoading(true);
+
+    try {
+      const res = await fetch("https://api.anthropic.com/v1/messages", {
+        method:"POST",
+        headers:{
+          "Content-Type":"application/json",
+          "x-api-key": apiKey,
+          "anthropic-version":"2023-06-01",
+          "anthropic-dangerous-direct-browser-calls":"true",
+        },
+        body: JSON.stringify({
+          model:"claude-haiku-4-5-20251001",
+          max_tokens:1024,
+          system: SYSTEM_PROMPT,
+          messages: newMsgs.map(m => ({ role:m.role, content:m.content })),
+        }),
+      });
+      const data = await res.json();
+      if (data.content?.[0]?.text) {
+        setMsgs(prev => [...prev, { role:"assistant", content:data.content[0].text }]);
+      } else {
+        throw new Error(data.error?.message || "Error de API");
+      }
+    } catch (e) {
+      setMsgs(prev => [...prev, { role:"assistant", content:`❌ Error al conectar: ${e.message}.\n\nVerifica tu API key en el botón 🔑 arriba.` }]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div style={{ display:"flex", flexDirection:"column", height:"calc(100vh - 170px)" }}>
+
+      {/* Modal API key */}
+      {showKey && (
+        <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.55)",
+          display:"flex", alignItems:"center", justifyContent:"center", zIndex:600, padding:20 }}>
+          <div style={{ background:C.panel, borderRadius:18, padding:24, width:"100%", maxWidth:360 }}>
+            <div style={{ fontSize:16, fontWeight:700, color:C.earth, marginBottom:6 }}>🔑 API Key de Anthropic</div>
+            <div style={{ fontSize:13, color:C.muted, marginBottom:16, lineHeight:1.6 }}>
+              Obtén tu clave gratis en <strong>console.anthropic.com</strong>.<br/>Se guarda solo en este dispositivo.
+            </div>
+            <input type="password" value={tempKey} onChange={e=>setTempKey(e.target.value)}
+              onKeyDown={e=>e.key==="Enter"&&saveKey()}
+              placeholder="sk-ant-api03-..." autoFocus
+              style={{ width:"100%", padding:"10px 12px", borderRadius:8,
+                border:`1.5px solid ${C.green}`, fontSize:13, fontFamily:"inherit",
+                boxSizing:"border-box", marginBottom:12, outline:"none" }} />
+            <div style={{ display:"flex", gap:8 }}>
+              <Btn full small onClick={saveKey}>Guardar y continuar</Btn>
+              <Btn full small variant="ghost" onClick={()=>setShowKey(false)}>Cancelar</Btn>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Cabecera */}
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10, flexShrink:0 }}>
+        <div>
+          <div style={{ fontSize:16, fontWeight:700, color:C.earth }}>Asistente Agrícola</div>
+          <div style={{ fontSize:11, color:C.muted }}>Galleguillos Agrícola · D'Agen, Curicó</div>
+        </div>
+        <button onClick={()=>{ setTempKey(apiKey); setShowKey(true); }} style={{
+          background: apiKey?C.greenPale:C.redPale,
+          color: apiKey?C.green:C.red,
+          border:`1px solid ${apiKey?C.green+"55":C.red+"55"}`,
+          borderRadius:20, padding:"5px 12px", fontSize:11, cursor:"pointer", fontFamily:"inherit" }}>
+          {apiKey ? "🔑 Conectado" : "🔑 Configurar"}
+        </button>
+      </div>
+
+      {/* Acciones rápidas */}
+      <div style={{ display:"flex", gap:6, overflowX:"auto", paddingBottom:8, marginBottom:6, flexShrink:0 }}>
+        {QUICK.map((q,i)=>(
+          <button key={i} onClick={()=>sendMsg(q.msg)} disabled={loading} style={{
+            flex:"0 0 auto", background:C.panel, border:`1px solid ${C.border}`,
+            borderRadius:20, padding:"6px 12px", fontSize:11, cursor:"pointer",
+            fontFamily:"inherit", color:C.earth, whiteSpace:"nowrap",
+          }}>{q.label}</button>
+        ))}
+      </div>
+
+      {/* Mensajes */}
+      <div style={{ flex:1, overflowY:"auto", paddingRight:2 }}>
+        {msgs.map((m,i)=>(
+          <div key={i} style={{ marginBottom:14, display:"flex", flexDirection:"column",
+            alignItems: m.role==="user"?"flex-end":"flex-start" }}>
+            {m.role==="assistant" && (
+              <div style={{ fontSize:10, color:C.muted, marginBottom:3 }}>🌿 Asistente Surco</div>
+            )}
+            <div style={{
+              background: m.role==="user"?C.green:C.panel,
+              color: m.role==="user"?C.white:C.text,
+              border: m.role==="user"?"none":`1px solid ${C.border}`,
+              borderRadius: m.role==="user"?"16px 16px 4px 16px":"16px 16px 16px 4px",
+              padding:"10px 14px", maxWidth:"85%", fontSize:13,
+            }}>
+              {renderText(m.content)}
+            </div>
+          </div>
+        ))}
+        {loading && (
+          <div style={{ display:"flex", alignItems:"flex-start", marginBottom:14 }}>
+            <div style={{ background:C.panel, border:`1px solid ${C.border}`,
+              borderRadius:"16px 16px 16px 4px", padding:"12px 16px", fontSize:13, color:C.muted }}>
+              ✦ Pensando...
+            </div>
+          </div>
+        )}
+        <div ref={endRef} />
+      </div>
+
+      {/* Input */}
+      <div style={{ display:"flex", gap:8, paddingTop:8, flexShrink:0 }}>
+        <input value={input} onChange={e=>setInput(e.target.value)}
+          onKeyDown={e=>{ if(e.key==="Enter"&&!e.shiftKey){ e.preventDefault(); sendMsg(); } }}
+          placeholder="Escribe tu consulta..." disabled={loading}
+          style={{ flex:1, padding:"12px 16px", borderRadius:24,
+            border:`1.5px solid ${C.border}`, fontSize:13, fontFamily:"inherit",
+            background:C.panel, outline:"none", color:C.text }} />
+        <button onClick={()=>sendMsg()} disabled={loading||!input.trim()} style={{
+          background: (loading||!input.trim())?C.border:C.green,
+          color:C.white, border:"none", borderRadius:24,
+          padding:"12px 18px", fontSize:16, cursor:(loading||!input.trim())?"default":"pointer",
+          transition:"background .2s",
+        }}>➤</button>
+      </div>
+    </div>
+  );
+}
+
 // ─── MAIN APP UNIFICADA ───────────────────────────────────────────────────────
 const NAV = [
-  { id:"home",    icon:"🏠", label:"Inicio"   },
-  { id:"campo",   icon:"🌿", label:"Cultivos"  },
-  { id:"cuaderno",icon:"📋", label:"Cuaderno" },
-  { id:"clima",   icon:"⛅", label:"Clima"    },
-  { id:"plagas",  icon:"🔍", label:"Plagas"   },
+  { id:"home",      icon:"🏠", label:"Inicio"    },
+  { id:"campo",     icon:"🌿", label:"Cultivos"  },
+  { id:"cuaderno",  icon:"📋", label:"Cuaderno"  },
+  { id:"costos",    icon:"💰", label:"Costos"    },
+  { id:"plagas",    icon:"🔍", label:"Plagas"    },
+  { id:"asistente", icon:"✦",  label:"Asistente" },
 ];
 
 const SECTION_TITLES = {
   home:"Inicio", campo:"Mis Cultivos", cuaderno:"Cuaderno SAG",
   clima:"Clima y Alertas", plagas:"Plagas", mercado:"Mercado",
+  costos:"Costos e IVA", asistente:"Asistente Agrícola",
 };
 
 function SurcoApp() {
@@ -932,29 +1388,40 @@ function SurcoApp() {
 
       {/* CONTENT */}
       <div style={{ padding:"20px 16px" }}>
-        {tab==="home"     && <ModuloHome onNavCampo={()=>navTo("campo")} onNavClima={()=>navTo("clima")} onNavCuaderno={()=>navTo("cuaderno")} onNavPlagas={()=>navTo("plagas")} onNavMercado={()=>navTo("mercado")} />}
-        {tab==="campo"    && <ModuloCampo />}
-        {tab==="cuaderno" && <ModuloCuaderno />}
-        {tab==="clima"    && <ModuloClima />}
-        {tab==="plagas"   && <ModuloPlagas onToast={showToast} />}
-        {tab==="mercado"  && <ModuloMercado />}
+        {tab==="home"      && <ModuloHome onNavCampo={()=>navTo("campo")} onNavClima={()=>navTo("clima")} onNavCuaderno={()=>navTo("cuaderno")} onNavPlagas={()=>navTo("plagas")} onNavMercado={()=>navTo("mercado")} onNavCostos={()=>navTo("costos")} onNavAsistente={()=>navTo("asistente")} />}
+        {tab==="campo"     && <ModuloCampo />}
+        {tab==="cuaderno"  && <ModuloCuaderno />}
+        {tab==="clima"     && <ModuloClima />}
+        {tab==="costos"    && <ModuloCostos />}
+        {tab==="plagas"    && <ModuloPlagas onToast={showToast} />}
+        {tab==="mercado"   && <ModuloMercado />}
+        {tab==="asistente" && <ModuloAsistente />}
       </div>
 
       {/* BOTTOM NAV */}
       <div style={{ position:"fixed", bottom:0, left:"50%", transform:"translateX(-50%)",
         width:"100%", maxWidth:480, background:C.panel, borderTop:`1px solid ${C.border}`,
         display:"flex", justifyContent:"space-around", padding:"10px 0 16px", zIndex:100 }}>
-        {NAV.map(t => (
-          <button key={t.id} onClick={() => setTab(t.id)} style={{
-            display:"flex", flexDirection:"column", alignItems:"center", gap:3,
-            background:"none", border:"none", cursor:"pointer", fontFamily:"inherit",
-            color:tab===t.id?C.green:C.muted,
-          }}>
-            <span style={{ fontSize:20 }}>{t.icon}</span>
-            <span style={{ fontSize:9, fontWeight:tab===t.id?700:400, textTransform:"uppercase", letterSpacing:.5 }}>{t.label}</span>
-            {tab===t.id && <div style={{ width:4, height:4, borderRadius:"50%", background:C.green }} />}
-          </button>
-        ))}
+        {NAV.map(t => {
+          const isAI   = t.id === "asistente";
+          const active = tab === t.id;
+          return (
+            <button key={t.id} onClick={() => setTab(t.id)} style={{
+              display:"flex", flexDirection:"column", alignItems:"center", gap:2,
+              background: isAI && active ? C.green : "none",
+              border: isAI && !active ? `1px solid ${C.green}55` : "none",
+              borderRadius: isAI ? 12 : 0,
+              padding: isAI ? "5px 8px" : "0",
+              cursor:"pointer", fontFamily:"inherit",
+              color: active ? (isAI ? C.white : C.green) : isAI ? C.green : C.muted,
+              minWidth: 48,
+            }}>
+              <span style={{ fontSize: isAI ? 16 : 20 }}>{t.icon}</span>
+              <span style={{ fontSize:8, fontWeight:active?700:400, textTransform:"uppercase", letterSpacing:.3 }}>{t.label}</span>
+              {active && !isAI && <div style={{ width:4, height:4, borderRadius:"50%", background:C.green }} />}
+            </button>
+          );
+        })}
       </div>
     </div>
   );
