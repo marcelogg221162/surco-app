@@ -21,7 +21,7 @@
   <script src="https://unpkg.com/recharts@2.10.0/umd/Recharts.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
   <script type="text/babel">
-    const { useState } = React;
+    const { useState, useRef, useEffect } = React;
     const { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, BarChart, Bar, Cell, LineChart, Line } = Recharts;
 
 
@@ -865,18 +865,231 @@ function ModuloMercado() {
   );
 }
 
+// ─── ASISTENTE ────────────────────────────────────────────────────────────────
+const SYSTEM_PROMPT = `Eres el asistente agrícola de Galleguillos Agrícola, empresa frutera familiar con plantación de ciruelas en Curicó, Región del Maule, Chile.
+
+DATOS DE LA EMPRESA:
+- Razón social: Galleguillos Agrícola
+- Campo: Las Ciruelas — 4.2 ha de Ciruela D'Agen (secado/prune), plantada 2019
+- Ubicación: 34°58'S 71°14'O, Curicó, Maule
+- Riego: Goteo tecnificado
+- Etapa fenológica actual: Floración (etapa crítica — mayo 2026)
+- Última aplicación SAG: Champion 77 WP (Fungicida, Syngenta) el 15/04/2026 · 2.5 kg/ha · Operario J. Muñoz
+- Aplicaciones esta temporada: 3 registros (Champion WP, Nitrofoska, Roundup Max)
+- Operarios activos: J. Muñoz, R. Soto
+
+CLIMA Y ALERTAS ACTIVAS:
+- Temperatura actual: 18°C, parcialmente nublado, Curicó
+- ⚠️ ALERTA CRÍTICA: Helada -2°C el viernes 25 Abr entre 02:00–06:00 → floración en riesgo máximo
+- ⚠️ Lluvia intensa sábado–domingo (28 mm proyectados)
+- ⚠️ Ola de calor 34°C el martes 29 Abr
+- Horas de frío acumuladas: 1847 HF (requerimiento D'Agen ya cubierto)
+
+PRECIO DE MERCADO (orientativo):
+- Ciruela D'Agen FOB Chile: $2.10 USD/kg (−2.1% semana anterior)
+- Mercados principales: Alemania $2.20, Francia $2.15, Medio Oriente $2.30 ↑, EE.UU. $2.05 ↓
+- Medio Oriente en alza +18% YoY — oportunidad estratégica
+- Volumen exportado Chile temporada: 68.200 ton
+
+INSTRUCCIONES DE COMPORTAMIENTO:
+1. Habla en español chileno, de forma directa y práctica — como un asesor agrícola de confianza
+2. Para asesoría agronómica: considera siempre la fenología actual (Floración), el clima y las alertas antes de dar recomendaciones
+3. Para registrar faenas: pide producto, dosis, unidad, fecha, operario y confirma antes de cerrar el registro
+4. Para decisiones de venta: analiza el precio FOB D'Agen, tendencias y ventana de venta post-cosecha (Ene–Feb)
+5. Para gestión de personal/costos: ayuda a registrar jornales, gastos en insumos y calcular costos por ha
+6. Usa bullet points para listas y pasos. Respuestas concisas pero completas
+7. Si hay una alerta climática relevante para la consulta, menciónala proactivamente
+8. Cuando el usuario registre una aplicación, muestra un resumen estructurado tipo cuaderno SAG`;
+
+function ModuloAsistente() {
+  const [msgs, setMsgs] = useState([
+    { role:"assistant", content:"Hola 👋 Soy tu asistente para **Galleguillos Agrícola**.\n\nPuedo ayudarte con:\n• **Asesoría agronómica** — qué hacer esta semana con tus D'Agen\n• **Registrar faenas** — aplicaciones SAG, riegos, laboreos\n• **Decisiones de venta** — cuándo y a qué mercado exportar\n• **Gestión de costos** — jornales, insumos, reportes\n\n⚠️ Alerta: hay **helada crítica el viernes a las 02:00 (-2°C)**. ¿Tienes protección preparada para la floración?\n\n¿En qué te ayudo hoy?" }
+  ]);
+  const [input, setInput]   = useState("");
+  const [loading, setLoading] = useState(false);
+  const [apiKey, setApiKey]   = useState(() => localStorage.getItem("surco_api_key") || "");
+  const [showKey, setShowKey] = useState(false);
+  const [tempKey, setTempKey] = useState("");
+  const endRef = useRef(null);
+
+  useEffect(() => { endRef.current?.scrollIntoView({ behavior:"smooth" }); }, [msgs]);
+
+  const saveKey = () => {
+    localStorage.setItem("surco_api_key", tempKey.trim());
+    setApiKey(tempKey.trim());
+    setShowKey(false);
+  };
+
+  const QUICK = [
+    { label:"⚡ Esta semana",      msg:"¿Qué debo hacer esta semana en mis ciruelas D'Agen? Considera la fenología actual y el clima." },
+    { label:"🧊 Proteger helada",  msg:"Hay helada -2°C el viernes durante floración. ¿Qué medidas concretas tomo para proteger mis ciruelas?" },
+    { label:"💰 ¿Cuándo vender?",  msg:"Analizando el precio FOB actual de ciruela D'Agen y las tendencias de mercado, ¿cuándo y a qué destino me conviene vender?" },
+    { label:"📋 Registrar faena",  msg:"Quiero registrar una nueva aplicación en el cuaderno SAG." },
+    { label:"👷 Control costos",   msg:"Ayúdame a llevar el control de costos y jornales de esta temporada." },
+  ];
+
+  const renderText = (text) => {
+    return text.split('\n').map((line, i) => {
+      const parts = line.split(/\*\*(.*?)\*\*/g);
+      const rendered = parts.map((p, j) => j % 2 === 1 ? <strong key={j}>{p}</strong> : p);
+      return <div key={i} style={{ minHeight: line === '' ? 8 : 'auto', lineHeight:1.7 }}>{rendered}</div>;
+    });
+  };
+
+  const sendMsg = async (text) => {
+    const msg = (text || input).trim();
+    if (!msg) return;
+    if (!apiKey) { setTempKey(""); setShowKey(true); return; }
+
+    const newMsgs = [...msgs, { role:"user", content:msg }];
+    setMsgs(newMsgs);
+    setInput("");
+    setLoading(true);
+
+    try {
+      const res = await fetch("https://api.anthropic.com/v1/messages", {
+        method:"POST",
+        headers:{
+          "Content-Type":"application/json",
+          "x-api-key": apiKey,
+          "anthropic-version":"2023-06-01",
+          "anthropic-dangerous-direct-browser-calls":"true",
+        },
+        body: JSON.stringify({
+          model:"claude-haiku-4-5-20251001",
+          max_tokens:1024,
+          system: SYSTEM_PROMPT,
+          messages: newMsgs.map(m => ({ role:m.role, content:m.content })),
+        }),
+      });
+      const data = await res.json();
+      if (data.content?.[0]?.text) {
+        setMsgs(prev => [...prev, { role:"assistant", content:data.content[0].text }]);
+      } else {
+        throw new Error(data.error?.message || "Error de API");
+      }
+    } catch (e) {
+      setMsgs(prev => [...prev, { role:"assistant", content:`❌ Error al conectar: ${e.message}.\n\nVerifica tu API key en el botón 🔑 arriba.` }]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div style={{ display:"flex", flexDirection:"column", height:"calc(100vh - 170px)" }}>
+
+      {/* Modal API key */}
+      {showKey && (
+        <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.55)",
+          display:"flex", alignItems:"center", justifyContent:"center", zIndex:600, padding:20 }}>
+          <div style={{ background:C.panel, borderRadius:18, padding:24, width:"100%", maxWidth:360 }}>
+            <div style={{ fontSize:16, fontWeight:700, color:C.earth, marginBottom:6 }}>🔑 API Key de Anthropic</div>
+            <div style={{ fontSize:13, color:C.muted, marginBottom:16, lineHeight:1.6 }}>
+              Obtén tu clave gratis en <strong>console.anthropic.com</strong>.<br/>Se guarda solo en este dispositivo.
+            </div>
+            <input type="password" value={tempKey} onChange={e=>setTempKey(e.target.value)}
+              onKeyDown={e=>e.key==="Enter"&&saveKey()}
+              placeholder="sk-ant-api03-..." autoFocus
+              style={{ width:"100%", padding:"10px 12px", borderRadius:8,
+                border:`1.5px solid ${C.green}`, fontSize:13, fontFamily:"inherit",
+                boxSizing:"border-box", marginBottom:12, outline:"none" }} />
+            <div style={{ display:"flex", gap:8 }}>
+              <Btn full small onClick={saveKey}>Guardar y continuar</Btn>
+              <Btn full small variant="ghost" onClick={()=>setShowKey(false)}>Cancelar</Btn>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Cabecera */}
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10, flexShrink:0 }}>
+        <div>
+          <div style={{ fontSize:16, fontWeight:700, color:C.earth }}>Asistente Agrícola</div>
+          <div style={{ fontSize:11, color:C.muted }}>Galleguillos Agrícola · D'Agen, Curicó</div>
+        </div>
+        <button onClick={()=>{ setTempKey(apiKey); setShowKey(true); }} style={{
+          background: apiKey?C.greenPale:C.redPale,
+          color: apiKey?C.green:C.red,
+          border:`1px solid ${apiKey?C.green+"55":C.red+"55"}`,
+          borderRadius:20, padding:"5px 12px", fontSize:11, cursor:"pointer", fontFamily:"inherit" }}>
+          {apiKey ? "🔑 Conectado" : "🔑 Configurar"}
+        </button>
+      </div>
+
+      {/* Acciones rápidas */}
+      <div style={{ display:"flex", gap:6, overflowX:"auto", paddingBottom:8, marginBottom:6, flexShrink:0 }}>
+        {QUICK.map((q,i)=>(
+          <button key={i} onClick={()=>sendMsg(q.msg)} disabled={loading} style={{
+            flex:"0 0 auto", background:C.panel, border:`1px solid ${C.border}`,
+            borderRadius:20, padding:"6px 12px", fontSize:11, cursor:"pointer",
+            fontFamily:"inherit", color:C.earth, whiteSpace:"nowrap",
+          }}>{q.label}</button>
+        ))}
+      </div>
+
+      {/* Mensajes */}
+      <div style={{ flex:1, overflowY:"auto", paddingRight:2 }}>
+        {msgs.map((m,i)=>(
+          <div key={i} style={{ marginBottom:14, display:"flex", flexDirection:"column",
+            alignItems: m.role==="user"?"flex-end":"flex-start" }}>
+            {m.role==="assistant" && (
+              <div style={{ fontSize:10, color:C.muted, marginBottom:3 }}>🌿 Asistente Surco</div>
+            )}
+            <div style={{
+              background: m.role==="user"?C.green:C.panel,
+              color: m.role==="user"?C.white:C.text,
+              border: m.role==="user"?"none":`1px solid ${C.border}`,
+              borderRadius: m.role==="user"?"16px 16px 4px 16px":"16px 16px 16px 4px",
+              padding:"10px 14px", maxWidth:"85%", fontSize:13,
+            }}>
+              {renderText(m.content)}
+            </div>
+          </div>
+        ))}
+        {loading && (
+          <div style={{ display:"flex", alignItems:"flex-start", marginBottom:14 }}>
+            <div style={{ background:C.panel, border:`1px solid ${C.border}`,
+              borderRadius:"16px 16px 16px 4px", padding:"12px 16px", fontSize:13, color:C.muted }}>
+              ✦ Pensando...
+            </div>
+          </div>
+        )}
+        <div ref={endRef} />
+      </div>
+
+      {/* Input */}
+      <div style={{ display:"flex", gap:8, paddingTop:8, flexShrink:0 }}>
+        <input value={input} onChange={e=>setInput(e.target.value)}
+          onKeyDown={e=>{ if(e.key==="Enter"&&!e.shiftKey){ e.preventDefault(); sendMsg(); } }}
+          placeholder="Escribe tu consulta..." disabled={loading}
+          style={{ flex:1, padding:"12px 16px", borderRadius:24,
+            border:`1.5px solid ${C.border}`, fontSize:13, fontFamily:"inherit",
+            background:C.panel, outline:"none", color:C.text }} />
+        <button onClick={()=>sendMsg()} disabled={loading||!input.trim()} style={{
+          background: (loading||!input.trim())?C.border:C.green,
+          color:C.white, border:"none", borderRadius:24,
+          padding:"12px 18px", fontSize:16, cursor:(loading||!input.trim())?"default":"pointer",
+          transition:"background .2s",
+        }}>➤</button>
+      </div>
+    </div>
+  );
+}
+
 // ─── MAIN APP UNIFICADA ───────────────────────────────────────────────────────
 const NAV = [
-  { id:"home",    icon:"🏠", label:"Inicio"   },
-  { id:"campo",   icon:"🌿", label:"Cultivos"  },
-  { id:"cuaderno",icon:"📋", label:"Cuaderno" },
-  { id:"clima",   icon:"⛅", label:"Clima"    },
-  { id:"plagas",  icon:"🔍", label:"Plagas"   },
+  { id:"home",      icon:"🏠", label:"Inicio"    },
+  { id:"campo",     icon:"🌿", label:"Cultivos"  },
+  { id:"cuaderno",  icon:"📋", label:"Cuaderno"  },
+  { id:"clima",     icon:"⛅", label:"Clima"     },
+  { id:"plagas",    icon:"🔍", label:"Plagas"    },
+  { id:"asistente", icon:"✦",  label:"Asistente" },
 ];
 
 const SECTION_TITLES = {
   home:"Inicio", campo:"Mis Cultivos", cuaderno:"Cuaderno SAG",
   clima:"Clima y Alertas", plagas:"Plagas", mercado:"Mercado",
+  asistente:"Asistente Agrícola",
 };
 
 function SurcoApp() {
@@ -932,29 +1145,39 @@ function SurcoApp() {
 
       {/* CONTENT */}
       <div style={{ padding:"20px 16px" }}>
-        {tab==="home"     && <ModuloHome onNavCampo={()=>navTo("campo")} onNavClima={()=>navTo("clima")} onNavCuaderno={()=>navTo("cuaderno")} onNavPlagas={()=>navTo("plagas")} onNavMercado={()=>navTo("mercado")} />}
-        {tab==="campo"    && <ModuloCampo />}
-        {tab==="cuaderno" && <ModuloCuaderno />}
-        {tab==="clima"    && <ModuloClima />}
-        {tab==="plagas"   && <ModuloPlagas onToast={showToast} />}
-        {tab==="mercado"  && <ModuloMercado />}
+        {tab==="home"      && <ModuloHome onNavCampo={()=>navTo("campo")} onNavClima={()=>navTo("clima")} onNavCuaderno={()=>navTo("cuaderno")} onNavPlagas={()=>navTo("plagas")} onNavMercado={()=>navTo("mercado")} />}
+        {tab==="campo"     && <ModuloCampo />}
+        {tab==="cuaderno"  && <ModuloCuaderno />}
+        {tab==="clima"     && <ModuloClima />}
+        {tab==="plagas"    && <ModuloPlagas onToast={showToast} />}
+        {tab==="mercado"   && <ModuloMercado />}
+        {tab==="asistente" && <ModuloAsistente />}
       </div>
 
       {/* BOTTOM NAV */}
       <div style={{ position:"fixed", bottom:0, left:"50%", transform:"translateX(-50%)",
         width:"100%", maxWidth:480, background:C.panel, borderTop:`1px solid ${C.border}`,
         display:"flex", justifyContent:"space-around", padding:"10px 0 16px", zIndex:100 }}>
-        {NAV.map(t => (
-          <button key={t.id} onClick={() => setTab(t.id)} style={{
-            display:"flex", flexDirection:"column", alignItems:"center", gap:3,
-            background:"none", border:"none", cursor:"pointer", fontFamily:"inherit",
-            color:tab===t.id?C.green:C.muted,
-          }}>
-            <span style={{ fontSize:20 }}>{t.icon}</span>
-            <span style={{ fontSize:9, fontWeight:tab===t.id?700:400, textTransform:"uppercase", letterSpacing:.5 }}>{t.label}</span>
-            {tab===t.id && <div style={{ width:4, height:4, borderRadius:"50%", background:C.green }} />}
-          </button>
-        ))}
+        {NAV.map(t => {
+          const isAI   = t.id === "asistente";
+          const active = tab === t.id;
+          return (
+            <button key={t.id} onClick={() => setTab(t.id)} style={{
+              display:"flex", flexDirection:"column", alignItems:"center", gap:2,
+              background: isAI && active ? C.green : "none",
+              border: isAI && !active ? `1px solid ${C.green}55` : "none",
+              borderRadius: isAI ? 12 : 0,
+              padding: isAI ? "5px 8px" : "0",
+              cursor:"pointer", fontFamily:"inherit",
+              color: active ? (isAI ? C.white : C.green) : isAI ? C.green : C.muted,
+              minWidth: 48,
+            }}>
+              <span style={{ fontSize: isAI ? 16 : 20 }}>{t.icon}</span>
+              <span style={{ fontSize:8, fontWeight:active?700:400, textTransform:"uppercase", letterSpacing:.3 }}>{t.label}</span>
+              {active && !isAI && <div style={{ width:4, height:4, borderRadius:"50%", background:C.green }} />}
+            </button>
+          );
+        })}
       </div>
     </div>
   );
